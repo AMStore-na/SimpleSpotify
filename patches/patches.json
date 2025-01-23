@@ -93,7 +93,7 @@
                 "native_description": "Enable showing content information messages for episodes",
                 "version": {
                     "fr": "1.1.78",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "PickShuffle": {
@@ -165,7 +165,7 @@
                 "native_description": "Enable esperanto Migration for Ad Formats",
                 "version": {
                     "fr": "1.2.6",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "RightSidebarMerchFallback": {
@@ -183,7 +183,7 @@
                 "native_description": "Enable Report action for audiobooks",
                 "version": {
                     "fr": "1.1.97",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "ReportPodcastShows": {
@@ -210,7 +210,7 @@
                 "native_description": "Enable Report action for audiobook chapters",
                 "version": {
                     "fr": "1.2.12",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "Dsa": {
@@ -228,7 +228,7 @@
                 "native_description": "Enable showing DSA (Digital Services Act) context menu and modal for ads",
                 "version": {
                     "fr": "1.2.20",
-                    "to": ""
+                    "to": "1.2.52"
                 }
             },
             "Dsa3": {
@@ -246,7 +246,7 @@
                 "native_description": "Enable showing new ads NPV",
                 "version": {
                     "fr": "1.2.18",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "NewAdsNpvVideoTakeover": {
@@ -255,7 +255,7 @@
                 "native_description": "Enable redesigned VideoTakeover for new ads NPV",
                 "version": {
                     "fr": "1.2.18",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "NewAdsNpvColorExtraction": {
@@ -264,7 +264,7 @@
                 "native_description": "Enable CTA card color extraction for new ads NPV",
                 "version": {
                     "fr": "1.2.18",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "AudiobookAdExclusivity": {
@@ -282,7 +282,7 @@
                 "native_description": "Enable new modal slot to position redesigned new ads NPV VideoTakeover above all areas except RightSidebar and NPB",
                 "version": {
                     "fr": "1.2.22",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "FraudLoadSignals": {
@@ -318,7 +318,7 @@
                 "native_description": "Enable the podcast ads Now Playing Bar experience, including features like the podcast ad Now Playing Bar hat",
                 "version": {
                     "fr": "1.1.70",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "podcast-episode": {
@@ -327,7 +327,7 @@
                 "native_description": "Enable the Sponsored By section on the Episode Page with Call to Action cards",
                 "version": {
                     "fr": "1.1.70",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "podcast-show_page": {
@@ -336,7 +336,7 @@
                 "native_description": "Enable show sponsors section on the Show Page",
                 "version": {
                     "fr": "1.1.70",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "betamaxAutoSeekToAdPosition": {
@@ -354,7 +354,7 @@
                 "native_description": "Enable sponsored content information for podcasts",
                 "version": {
                     "fr": "1.2.26",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "HomeAds": {
@@ -381,7 +381,7 @@
                 "native_description": "Enable esperanto migration for Billboard Ad Format",
                 "version": {
                     "fr": "1.2.32",
-                    "to": ""
+                    "to": "1.2.52"
                 }
             },
             "LeaderboardEsperantoMigration": {
@@ -399,7 +399,7 @@
                 "native_description": "Enable esperanto Migration for Sponsored Playlist Ad Formats",
                 "version": {
                     "fr": "1.2.32",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "PipImpressionLogging": {
@@ -435,7 +435,7 @@
                 "native_description": "Enables impression logging for the Artist About section in NPV",
                 "version": {
                     "fr": "1.2.37",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "SpotlightImpressionLogging": {
@@ -444,7 +444,7 @@
                 "native_description": "Enables impression logging for Spotlight",
                 "version": {
                     "fr": "1.2.37",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "EnhanceLikedSongs": {
@@ -498,6 +498,78 @@
                 "native_description": "Enable impressions on search for impression economy",
                 "version": {
                     "fr": "1.2.44",
+                    "to": ""
+                }
+            },
+            "StageDesktopDebug": {
+                "name": "enableTheStageDesktopDebug",
+                "description": "Enable debug messages for The Stage",
+                "native_description": "Enable debug messages for The Stage",
+                "version": {
+                    "fr": "1.2.51",
+                    "to": ""
+                }
+            },
+            "NewAdsNpvCanvasAds": {
+                "name": "enableNewAdsNpvCanvasAds",
+                "description": "Enable Canvas ads for new ads NPV",
+                "native_description": "Enable Canvas ads for new ads NPV",
+                "version": {
+                    "fr": "1.2.28",
+                    "to": "1.2.51"
+                }
+            },
+            "CanvasAds": {
+                "name": "enableCanvasAds",
+                "description": "Enable Canvas for ads",
+                "native_description": "Enable Canvas for ads",
+                "version": {
+                    "fr": "1.2.52",
+                    "to": ""
+                }
+            },
+            "ConnectedStateObserver": {
+                "name": "enableConnectedStateObserver",
+                "description": "Enable observer that logs errors related to connected state and ad info",
+                "native_description": "Enable observer that logs errors related to connected state and ad info",
+                "version": {
+                    "fr": "1.2.53",
+                    "to": ""
+                }
+            },
+            "EsperantoAdStateReportManager": {
+                "name": "enableEsperantoAdStateReportManager",
+                "description": "Enables esperanto migration of the adStateReportManager",
+                "native_description": "Enables esperanto migration of the adStateReportManager",
+                "version": {
+                    "fr": "1.2.55",
+                    "to": ""
+                }
+            },
+            "EventsInYourLibrary": {
+                "name": "enableEventsInYourLibrary",
+                "description": "Enable event chips and event items in your library",
+                "native_description": "Enable event chips and event items in your library",
+                "version": {
+                    "fr": "1.2.55",
+                    "to": ""
+                }
+            },
+            "LeavebehindsMockData": {
+                "name": "enableLeavebehindsMockData",
+                "description": "Use the mock2 endpoint to fetch Leavebehinds from AP4P",
+                "native_description": "Use the mock2 endpoint to fetch Leavebehinds from AP4P",
+                "version": {
+                    "fr": "1.2.30",
+                    "to": ""
+                }
+            },
+            "fixColorLyricsBug": {
+                "name": "enableDynamicColors",
+                "description": "if disabled then it fixes the bug with dynamic colors in lyrics",
+                "native_description": "Enable dynamic colors for the app",
+                "version": {
+                    "fr": "1.2.47",
                     "to": ""
                 }
             }
@@ -653,7 +725,7 @@
                 "native_description": "Enable a setting to control if followers and following lists are shown on profile",
                 "version": {
                     "fr": "1.2.1",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "RightSidebarCredits": {
@@ -689,7 +761,7 @@
                 "native_description": "Enable Artist about V2 section in NPV",
                 "version": {
                     "fr": "1.2.16",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "NewEntityHeaders": {
@@ -734,7 +806,7 @@
                 "native_description": "Enable Your Library X Enhancements",
                 "version": {
                     "fr": "1.2.18",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "SmallerLineHeight": {
@@ -779,7 +851,7 @@
                 "native_description": "Enable the cover art modal on the Album page",
                 "version": {
                     "fr": "1.2.13",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "SmartShuffle": {
@@ -815,7 +887,7 @@
                 "native_description": "he brings you playback progress",
                 "version": {
                     "fr": "1.2.14",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "AlbumPrerelease": {
@@ -824,7 +896,7 @@
                 "native_description": "Enable album prerelease pages",
                 "version": {
                     "fr": "1.2.18",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "ButtonAlwaysVisible": {
@@ -878,6 +950,15 @@
                 "native_description": "Enable Aligned Curation",
                 "version": {
                     "fr": "1.2.21",
+                    "to": "1.2.50"
+                }
+            },
+            "AlignedCurationSavedIn": {
+                "name": "enableAlignedCurationSavedIn",
+                "description": "Enables the Saved In section in Aligned Curation",
+                "native_description": "Enables the Saved In section in Aligned Curation",
+                "version": {
+                    "fr": "1.2.40",
                     "to": ""
                 }
             },
@@ -923,7 +1004,7 @@
                 "native_description": "Show credits in the right sidebar",
                 "version": {
                     "fr": "1.2.27",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "BanArtistAction": {
@@ -941,7 +1022,7 @@
                 "native_description": "Enable context menu action to ban/unban artists",
                 "version": {
                     "fr": "1.2.43",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "LyricsFullAvailabilityCheck": {
@@ -1022,7 +1103,7 @@
                 "native_description": "Enable animations for Queue on the right panel",
                 "version": {
                     "fr": "1.2.32",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "LikedSongsFilterTags": {
@@ -1130,16 +1211,7 @@
                 "native_description": "Enable centered layout",
                 "version": {
                     "fr": "1.2.39",
-                    "to": ""
-                }
-            },
-            "AlignedCurationSavedIn": {
-                "name": "enableAlignedCurationSavedIn",
-                "description": "Enables the Saved In section in Aligned Curation",
-                "native_description": "Enables the Saved In section in Aligned Curation",
-                "version": {
-                    "fr": "1.2.40",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "Lyrics": {
@@ -1202,15 +1274,78 @@
                 "native_description": "Enables recent searches dropdown in GlobalNavBar",
                 "version": {
                     "fr": "1.2.45",
+                    "to": "1.2.52"
+                }
+            },
+            "NearbyJams": {
+                "name": "enableNearbyJams",
+                "description": "Enable the support for Nearby Jams feature in the Device Picker",
+                "native_description": "Enable the support for Nearby Jams feature in the Device Picker",
+                "version": {
+                    "fr": "1.2.52",
                     "to": ""
                 }
             },
-            "LazyHomeShelvesDWP": {
-                "name": "enableLazyHomeShelvesDWP",
-                "description": "Enable lazy-loading of offscreen shelves on Home",
-                "native_description": "Enable lazy-loading of offscreen shelves on Home",
+            "TrackBans": {
+                "name": "enableContextualTrackBans",
+                "description": "Enable ability to ban/hide tracks from eligible contexts",
+                "native_description": "Enable ability to ban/hide tracks from eligible contexts",
                 "version": {
-                    "fr": "1.2.49",
+                    "fr": "1.2.52",
+                    "to": ""
+                }
+            },
+            "ArtistLikedSongs": {
+                "name": "enableArtistLikedSongs",
+                "description": "Enable Liked Songs section on Artist page",
+                "native_description": "Enable Liked Songs section on Artist page",
+                "version": {
+                    "fr": "1.1.79",
+                    "to": "1.2.17"
+                }
+            },
+            "ConcertsNotInterested": {
+                "name": "enableConcertsNotInterested",
+                "description": "Enable user to set not interested on concerts",
+                "native_description": "Enable user to set not interested on concerts",
+                "version": {
+                    "fr": "1.2.53",
+                    "to": ""
+                }
+            },
+            "GlobalCreateButton": {
+                "name": "enableGlobalCreateButton",
+                "description": "Enable plus button for creating different types of playlists from global nav bar",
+                "native_description": "Enable plus button for creating different types of playlists from global nav bar",
+                "version": {
+                    "fr": "1.2.53",
+                    "to": ""
+                }
+            },
+            "ZoomSettingsUIDesktop": {
+                "name": "enableZoomSettingsUIDesktop",
+                "description": "Enable zoom settings from the settings page on Desktop",
+                "native_description": "Enable zoom settings from the settings page on Desktop",
+                "version": {
+                    "fr": "1.2.53",
+                    "to": ""
+                }
+            },
+            "AmbientModeForMiniplayer": {
+                "name": "enableAmbientModeForMiniplayer",
+                "description": "Enable Ambient Mode for Miniplayer",
+                "native_description": "Enable Ambient Mode for Miniplayer",
+                "version": {
+                    "fr": "1.2.55",
+                    "to": ""
+                }
+            },
+            "PeekNpv": {
+                "name": "enablePeekNpv",
+                "description": "Collapse right sidebar",
+                "native_description": "Enable the Peek NPV feature",
+                "version": {
+                    "fr": "1.2.53",
                     "to": ""
                 }
             }
@@ -1223,7 +1358,7 @@
                 "value": "ENABLED",
                 "version": {
                     "fr": "1.2.21",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "SocialConnectOnDesktopWebPlayer": {
@@ -1233,7 +1368,7 @@
                 "value": "ENABLED",
                 "version": {
                     "fr": "1.2.21",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "MandalorianEaster": {
@@ -1333,7 +1468,7 @@
                 "value": "NPV_ALWAYS_VISIBLE",
                 "version": {
                     "fr": "1.2.39",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             }
         },
@@ -1355,6 +1490,24 @@
                 "add": "slot}(?=.{3,8}override_url)",
                 "match": "slots(?=.{3,8}override_url)",
                 "replace": "slot}"
+            },
+            "block_slots_2": {
+                "version": {
+                    "fr": "1.2.55",
+                    "to": ""
+                },
+                "add": "slot}(?=.{25,35}state)",
+                "match": "slots(?=.{25,35}state)",
+                "replace": "slot}"
+            },
+            "block_slots_3": {
+                "version": {
+                    "fr": "1.2.55",
+                    "to": ""
+                },
+                "add": "}(?=payload=)",
+                "match": "\\?(?=payload=)",
+                "replace": "}"
             },
             "block_gabo": {
                 "version": {
@@ -1609,45 +1762,17 @@
                 ""
             ]
         },
-        "removertl-cssmin": {
+        "cssmin": {
             "version": {
                 "fr": "1.1.70",
                 "to": ""
             },
             "match": [
-                "}\\[dir=ltr\\]\\s?([.a-zA-Z\\d[_]+?,\\[dir=ltr\\])",
-                "}\\[dir=ltr\\]\\s?",
-                "html\\[dir=ltr\\]",
-                ",\\s?\\[dir=rtl\\].+?(\\{.+?\\})",
-                "[\\w\\-\\.]+\\[dir=rtl\\].+?\\{.+?\\}",
-                "\\}\\[lang=ar\\].+?\\{.+?\\}",
-                "\\}\\[dir=rtl\\].+?\\{.+?\\}",
-                "\\}html\\[dir=rtl\\].+?\\{.+?\\}",
-                "\\}html\\[lang=ar\\].+?\\{.+?\\}",
-                "\\[lang=ar\\].+?\\{.+?\\}",
-                "html\\[dir=rtl\\].+?\\{.+?\\}",
-                "html\\[lang=ar\\].+?\\{.+?\\}",
-                "\\[dir=rtl\\].+?\\{.+?\\}",
-                "\\[dir=str\\]",
                 "[/]\\*([^*]|[\r\n]|(\\*([^/]|[\r\n])))*\\*[/]",
                 "[/][/]#\\s.*",
                 "\r?\n(?!\\(1|\\d)"
             ],
             "replace": [
-                "}[dir=str] $1",
-                "} ",
-                "html",
-                "$1",
-                "",
-                "}",
-                "}",
-                "}",
-                "}",
-                "",
-                "",
-                "",
-                "",
-                "[dir=ltr]",
                 "",
                 "",
                 ""
@@ -1720,6 +1845,13 @@
                 "\":",
                 ""
             ]
+        },
+        "block_subfeeds": {
+            "version": {
+                "fr": "1.2.36",
+                "to": ""
+            },
+            "add": " .LVMjmN2CaPruPAo62RAY { display: none !important }"
         },
         "downloadquality": {
             "version": {
@@ -1888,6 +2020,30 @@
             },
             "match": "(\"update_titlebar\",height:).",
             "replace": "$1'40'"
+        },
+        "mock": {
+            "version": {
+                "fr": "1.2.55",
+                "to": ""
+            },
+            "match": "\/(?:leavebehinds\/mock|leavebehinds|mock)\/",
+            "replace": "/localhost/"
+        },
+        "upgradeButton": {
+            "version": {
+                "fr": "1.2.55",
+                "to": ""
+            },
+            "match": "\"\\(min-width: 1024px\\)\"",
+            "replace": "\"(min-width: 9999990px)\""
+        },
+        "upgradeMenu": {
+            "version": {
+                "fr": "1.2.55",
+                "to": ""
+            },
+            "match": "=>\\{((?:(?!=>\\{).)*?(?=\"loggedin_upgrade_menu))",
+            "replace": "=>{ return null; $1"
         }
     }
 }

@@ -371,7 +371,7 @@ if (!($version -and $version -match $match_v)) {
     }
     else {  
         # Recommended version for Win 10-12 
-        $onlineFull = "1.2.48.405.gf2c48e6f-2008" 
+        $onlineFull = "1.2.55.235.g5eaa0904-463" 
     }
 }
 else {
@@ -481,8 +481,11 @@ function downloadSp() {
     $webClient = New-Object -TypeName System.Net.WebClient
 
     Import-Module BitsTransfer
-        
-    $web_Url = "https://download.scdn.co/upgrade/client/win32-x86/spotify_installer-$onlineFull.exe"
+    $max_x86 = [Version]"1.2.53"
+    $versionParts = $onlineFull -split '\.'
+    $short = [Version]"$($versionParts[0]).$($versionParts[1]).$($versionParts[2])"
+    $arch = if ($short -le $max_x86) { "win32-x86" } else { "win32-x86_64" }
+    $web_Url = "https://download.scdn.co/upgrade/client/$arch/spotify_installer-$onlineFull.exe"
     $local_Url = "$PWD\SpotifySetup.exe" 
     $web_name_file = "SpotifySetup.exe"
 
@@ -738,6 +741,17 @@ if ($spotifyInstalled) {
 
         if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) {
             Write-Host ($lang).NewV`n
+        }
+        if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
+            do {
+                Write-Host (($lang).NewV2 -f $offline, $online)
+                $ch = Read-Host -Prompt (($lang).NewV3 -f $offline)
+                Write-Host
+                if (!($ch -eq 'n' -or $ch -eq 'y')) {
+                    incorrectValue
+                }
+            }
+            while ($ch -notmatch '^y$|^n$')
         }
         if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) { $ch = 'n' }
         if ($ch -eq 'y') { $upgrade_client = $false }
@@ -1001,9 +1015,9 @@ function Helper($paramname) {
             $n = "xpui.css"
             $json = $webjson.others
         }
-        "RemovertlCssmin" { 
-            # Remove RTL and minification of all *.css
-            $contents = "removertl-cssmin"
+        "Cssmin" { 
+            # Minification of all *.css
+            $contents = "cssmin"
             $json = $webjson.others
         }
         "DisableSentry" { 
@@ -1046,6 +1060,10 @@ function Helper($paramname) {
 
             # carousel is temporarily disabled because it causes lags in the main menu
             Move-Json -n 'HomeCarousels' -t $Enable -f $Disable
+            
+            # ability to toggle the visibility of the playlist column is temporarily disabled because it does not save its state
+            Move-Json -n 'TogglePlaylistColumns' -t $Enable -f $Disable
+ 
  
             if ($podcast_off) { Move-Json -n 'HomePin' -t $Enable -f $Disable }
 
@@ -1058,7 +1076,11 @@ function Helper($paramname) {
 
             if ([version]$offline -eq [version]'1.2.30.1135') { Move-Json -n 'QueueOnRightPanel' -t $Enable -f $Disable }
 
-            if (!($plus)) { Move-Json -n "Plus", "AlignedCurationSavedIn" -t $Enable -f $Disable }
+            if ([version]$offline -le [version]'1.2.50.335') {
+
+                if (!($plus)) { Move-Json -n "Plus", "AlignedCurationSavedIn" -t $Enable -f $Disable }
+            
+            }
 
             if (!$topsearchbar) {
                 Move-Json -n "GlobalNavBar" -t $Enable -f $Disable 
@@ -1067,9 +1089,11 @@ function Helper($paramname) {
                     Move-Json -n "RecentSearchesDropdown" -t $Enable -f $Disable 
                 }
             }
+            if ([version]$offline -le [version]'1.2.50.335') {
 
-            if (!($funnyprogressbar)) { Move-Json -n 'HeBringsNpb' -t $Enable -f $Disable }
-
+                if (!($funnyprogressbar)) { Move-Json -n 'HeBringsNpb' -t $Enable -f $Disable }
+            
+            }
             if (!($canvasHome)) { Move-Json -n "canvasHome", "canvasHomeAudioPreviews" -t $Enable -f $Disable }
 
             
@@ -1193,6 +1217,8 @@ function Helper($paramname) {
 
             if ($not_block_update) { Remove-Json -j $binary -p 'block_update' }
 
+            if ($premium) { Remove-Json -j $binary -p 'block_slots_2', 'block_slots_3' }
+
             $name = "patches.json.others.binary."
             $n = "Spotify.exe"
             $contents = $webjson.others.binary.psobject.properties.name
@@ -1217,6 +1243,7 @@ function Helper($paramname) {
 
             $VarJs = $webjson.VariousJs
 
+            if ($premium) { Remove-Json -j $VarJs -p 'mock', 'upgradeButton', 'upgradeMenu' }
 
             if ($topsearchbar -or ([version]$offline -ne [version]"1.2.45.451" -and [version]$offline -ne [version]"1.2.45.454")) { 
                 Remove-Json -j $VarJs -p "fixTitlebarHeight"
@@ -1285,6 +1312,7 @@ function Helper($paramname) {
                     { -not $podcast_off -and $adsections_off } { "section" }
                 }
                 $webjson.VariousJs.block_section.replace = $webjson.VariousJs.block_section.replace -f $type
+                $global:type = $type
             }
             else {
                 Remove-Json -j $VarJs -p 'block_section'
@@ -1320,7 +1348,7 @@ function Helper($paramname) {
                         $paramdata = $paramdata -replace $json.$PSItem.match[$numbers], $json.$PSItem.replace[$numbers] 
                     }
                     else { 
-                        $notlog = "MinJs", "MinJson", "Removertl", "RemovertlCssmin"
+                        $notlog = "MinJs", "MinJson", "Cssmin"
                         if ($paramname -notin $notlog) {
     
                             Write-Host $novariable -ForegroundColor red -NoNewline 
@@ -1659,6 +1687,12 @@ If ($test_spa) {
         }
     }
 
+        # block subfeeds
+        if ($global:type -eq "all" -or $global:type -eq "podcast") {
+            $css += $webjson.others.block_subfeeds.add
+        }
+    
+
     if ($null -ne $css ) { extract -counts 'one' -method 'zip' -name 'xpui.css' -add $css }
     
     # Old UI fix
@@ -1666,7 +1700,7 @@ If ($test_spa) {
     extract -counts 'one' -method 'zip' -name 'xpui.css' -helper "FixCss"
 
     # Remove RTL and minification of all *.css
-    extract -counts 'more' -name '*.css' -helper 'RemovertlCssmin'
+    extract -counts 'more' -name '*.css' -helper 'Cssmin'
     
     # licenses.html minification
 
@@ -1722,11 +1756,13 @@ If (!(Test-Path $start_menu)) {
 $ANSI = [Text.Encoding]::GetEncoding(1251)
 $old = [IO.File]::ReadAllText($spotifyExecutable, $ANSI)
 
-$rexex1 = $old -notmatch $webjson.others.binary.block_update.add
-$rexex2 = $old -notmatch $webjson.others.binary.block_slots.add
-$rexex3 = $old -notmatch $webjson.others.binary.block_gabo.add
+$regex1 = $old -notmatch $webjson.others.binary.block_update.add
+$regex2 = $old -notmatch $webjson.others.binary.block_slots.add
+$regex3 = $old -notmatch $webjson.others.binary.block_slots_2.add
+$regex4 = $old -notmatch $webjson.others.binary.block_slots_3.add
+$regex5 = $old -notmatch $webjson.others.binary.block_gabo.add
 
-if ($rexex1 -and $rexex2 -and $rexex3) {
+if ($regex1 -and $regex2 -and $regex3 -and $regex4 -and $regex5) {
 
     if (Test-Path -LiteralPath $exe_bak) { 
         Remove-Item $exe_bak -Recurse -Force
