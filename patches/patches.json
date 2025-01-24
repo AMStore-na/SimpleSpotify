@@ -2021,14 +2021,6 @@
             "match": "(\"update_titlebar\",height:).",
             "replace": "$1'40'"
         },
-        "titlebar": {
-              "version": {
-                "fr": "1.2.45",
-                "to": "1.2.45"
-              },
-              "match": "(\"placeholder\",)\".*?\",",
-              "replace": "$1\"Cerca con AIMODS\","
-        },
         "mock": {
             "version": {
                 "fr": "1.2.55",
