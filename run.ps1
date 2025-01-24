@@ -57,9 +57,6 @@ param
     [Parameter(HelpMessage = 'Enable top search bar.')]
     [switch]$topsearchbar,
 
-    [Parameter(HelpMessage = 'Enable AIMODS.')]
-    [switch]$titlebar,
-
     [Parameter(HelpMessage = 'disable subfeed filter chips on home.')]
     [switch]$homesub_off,
     
@@ -1091,14 +1088,6 @@ function Helper($paramname) {
                     Move-Json -n "RecentSearchesDropdown" -t $Enable -f $Disable 
                 }
             }
-            
-            if (!$titlebar) {
-                Move-Json -n "GlobalNavBar" -t $Enable -f $Disable 
-                $Custom.GlobalNavBar.value = "control"
-                if ([version]$offline -le [version]"1.2.45.454") {
-                    Move-Json -n "RecentSearchesDropdown" -t $Enable -f $Disable 
-                }
-            }
 
             if ([version]$offline -le [version]'1.2.50.335') {
 
@@ -1259,11 +1248,6 @@ function Helper($paramname) {
             if ($topsearchbar -or ([version]$offline -ne [version]"1.2.45.451" -and [version]$offline -ne [version]"1.2.45.454")) { 
                 Remove-Json -j $VarJs -p "fixTitlebarHeight"
             }
-
-            if ($titlebar -or ([version]$offline -ne [version]"1.2.45.451" -and [version]$offline -ne [version]"1.2.45.454")) { 
-                Remove-Json -j $VarJs -p "titlebar"
-            }
-
 
             if (!($lyrics_block)) { Remove-Json -j $VarJs -p "lyrics-block" }
 
