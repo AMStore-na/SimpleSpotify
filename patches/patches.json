@@ -2021,20 +2021,6 @@
             "match": "(\"update_titlebar\",height:).",
             "replace": "$1'40'"
         },
-"titlebar": {
-    "version": {
-        "fr": "1.2.45",
-        "to": "1.2.45"
-    },
-    "match": {
-        "it": "(\"update_titlebar\",)\"Cosa vuoi ascoltare?\",",
-        "en": "(\"update_titlebar\",)\"What do you want to listen to?\","
-    },
-    "replace": {
-        "it": "$1\"Cerca con AIMODS\",",
-        "en": "$1\"Search with AIMODS\","
-    }
-},
         "mock": {
             "version": {
                 "fr": "1.2.55",
