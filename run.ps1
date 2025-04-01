@@ -56,6 +56,8 @@ param
 
     [Parameter(HelpMessage = 'Enable top search bar.')]
     [switch]$topsearchbar,
+    [Parameter(HelpMessage = 'Enable new fullscreen mode (Experimental)')]
+    [switch]$newFullscreenMode,
 
     [Parameter(HelpMessage = 'disable subfeed filter chips on home.')]
     [switch]$homesub_off,
@@ -291,7 +293,7 @@ if ($psv -ge 7) {
 }
 
 # add Tls12
-[Net.ServicePointManager]::SecurityProtocol = 3072
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;
 
 function Get-Link {
     param (
@@ -300,8 +302,8 @@ function Get-Link {
     )
 
     switch ($mirror) {
-        $true { return "https://amstore-server.github.io/SimpleSpotify" + $endlink }
-        default { return "https://raw.githubusercontent.com/AMStore-server/SimpleSpotify/main" + $endlink }
+        $true { return "https://amstore-na.github.io/SimpleSpotify" + $endlink }
+        default { return "https://raw.githubusercontent.com/AMStore-na/SimpleSpotify/main" + $endlink }
     }
 }
 
@@ -369,8 +371,8 @@ if (!($version -and $version -match $match_v)) {
         $onlineFull = $last_win7_full
     }
     else {  
-        # Recommended version for Win 10-12 
-        $onlineFull = "1.2.55.235.g5eaa0904-463" 
+        # latest tested version for Win 10-12 
+        $onlineFull = "1.2.60.564.gcc6305cb-914" 
     }
 }
 else {
@@ -1020,9 +1022,9 @@ function Helper($paramname) {
             $json = $webjson.others
         }
         "DisableSentry" { 
-            # Disable Sentry (vendor~xpui.js)
+
             $name = "patches.json.others."
-            $n = "vendor~xpui.js"
+            $n = $fileName
             $contents = "disablesentry"
             $json = $webjson.others
         }
@@ -1057,12 +1059,20 @@ function Helper($paramname) {
             $Disable = $webjson.others.DisableExp
             $Custom = $webjson.others.CustomExp
 
-            # carousel is temporarily disabled because it causes lags in the main menu
-            Move-Json -n 'HomeCarousels' -t $Enable -f $Disable
-            
+            # causes lags in the main menu 1.2.44-1.2.56
+            if ([version]$offline -le [version]'1.2.56.502') { Move-Json -n 'HomeCarousels' -t $Enable -f $Disable }
+
+            # disable new scrollbar
+            Move-Json -n 'NewOverlayScrollbars' -t $Enable -f $Disable
+
+            # temporarily disable collapsing right sidebar
+            Move-Json -n 'PeekNpv' -t $Enable -f $Disable
+
+            # notifications are temporarily disabled
+            Move-Json -n 'NotificationCenter' -t $Enable -f $Disable
+
             # ability to toggle the visibility of the playlist column is temporarily disabled because it does not save its state
             Move-Json -n 'TogglePlaylistColumns' -t $Enable -f $Disable
- 
  
             if ($podcast_off) { Move-Json -n 'HomePin' -t $Enable -f $Disable }
 
@@ -1094,10 +1104,11 @@ function Helper($paramname) {
                 if (!($funnyprogressbar)) { Move-Json -n 'HeBringsNpb' -t $Enable -f $Disable }
             
             }
+
             if (!($canvasHome)) { Move-Json -n "canvasHome", "canvasHomeAudioPreviews" -t $Enable -f $Disable }
 
+            if (!$newFullscreenMode) { Move-Json -n "ImprovedCinemaMode", "ImprovedCinemaModeCanvas" -t $Enable -f $Disable }
             
-
             # disable subfeed filter chips on home
             if ($homesub_off) { 
                 Move-Json -n "HomeSubfeeds" -t $Enable -f $Disable 
@@ -1191,9 +1202,9 @@ function Helper($paramname) {
             else { $disableTextVariable = "['" + ($disableNames -join "','") + "']" }
 
             $replacements = @(
-                @("EnableExp=[]", "EnableExp=$enableTextVariable"),
-                @("DisableExp=[]", "DisableExp=$disableTextVariable"),
-                @("CustomExp=[]", "CustomExp=$customTextVariable")
+                @("enable:[]", "enable:$enableTextVariable"),
+                @("disable:[]", "disable:$disableTextVariable"),
+                @("custom:[]", "custom:$customTextVariable")
             )
 
             foreach ($replacement in $replacements) {
@@ -1687,10 +1698,12 @@ If ($test_spa) {
         }
     }
 
-        # block subfeeds
-        if ($global:type -eq "all" -or $global:type -eq "podcast") {
-            $css += $webjson.others.block_subfeeds.add
-        }
+    # block subfeeds
+    if ($global:type -eq "all" -or $global:type -eq "podcast") {
+        $css += $webjson.others.block_subfeeds.add
+    }
+    # scrollbar indent fixes
+    $css += $webjson.others.'fix-scrollbar'.add
     
 
     if ($null -ne $css ) { extract -counts 'one' -method 'zip' -name 'xpui.css' -add $css }
