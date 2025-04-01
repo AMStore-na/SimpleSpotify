@@ -2,7 +2,7 @@
     "free": {
         "fullscreen": {
             "version": {
-                "fr": "1.1.58",
+                "fr": "1.1.59",
                 "to": "1.1.92"
             },
             "match": "(return|.=.=>)\"free\"===(.+?)(return|.=.=>)\"premium\"===",
@@ -10,7 +10,7 @@
         },
         "audioads": {
             "version": {
-                "fr": "1.1.58",
+                "fr": "1.1.59",
                 "to": "1.1.92"
             },
             "match": "(case .:|async enable\\(.\\){)(this.enabled=.+?\\(.{1,3},\"audio\"\\),|return this.enabled=...+?\\(.{1,3},\"audio\"\\))((;case 4:)?this.subscription=this.audioApi).+?this.onAdMessage\\)",
@@ -18,7 +18,7 @@
         },
         "emptyblock": {
             "version": {
-                "fr": "1.1.58",
+                "fr": "1.1.59",
                 "to": ""
             },
             "match": "adsEnabled:!0",
@@ -26,7 +26,7 @@
         },
         "playlistsponsor": {
             "version": {
-                "fr": "1.1.58",
+                "fr": "1.1.59",
                 "to": ""
             },
             "match": "allSponsorships",
@@ -60,7 +60,7 @@
     "others": {
         "discriptions": {
             "version": {
-                "fr": "1.1.70",
+                "fr": "1.1.59",
                 "to": ""
             },
             "match": "((..createElement|children:\\(.{1,7}\\))\\(.{1,7},{source:).{1,7}get\\(\"about.copyright\",.\\),paragraphClassName:.}\\)",
@@ -71,11 +71,11 @@
         },
         "ForcedExp": {
             "version": {
-                "fr": "1.1.79",
+                "fr": "1.1.67",
                 "to": ""
             },
-            "match": "(configuration:(.).getRemoteConfiguration.+?;)",
-            "replace": "$1const EnableExp=[],DisableExp=[],CustomExp=[],allExperiments=[EnableExp,DisableExp,CustomExp];allExperiments.forEach((expArray)=>{const values=$2.getRemoteConfiguration()?.values;if(values){expArray.forEach((exp)=>{if(expArray===EnableExp||expArray===DisableExp){values.set(exp,expArray===EnableExp);}else if(expArray===CustomExp){values.set(exp.name,exp.value);}});(window.aimods??={}).RemoteExp=values}});"
+            "match": "((?:{configuration|{resolver|instance):(.).(?:getRemoteConfig|getUrlDispenserServiceClient).+?;)",
+            "replace": "$1const experiments={enable:[],disable:[],custom:[]},setExpValue=(v,e,val)=>v&&(v.set?v.set(e,val):v[e]&&(v[e].value=val)),config=$2.getRemoteConfigResolver?.()||$2.getRemoteConfiguration?.();config&&((values=>{for(const type in experiments)experiments[type].forEach(exp=>setExpValue(values,type==='custom'?exp.name:exp,type==='custom'?exp.value:type==='enable'));(window.Spotx??={}).RemoteExp=values})(config.values||config.activeProperties));"
         },
         "DisableExp": {
             "InAppMessaging": {
@@ -83,7 +83,7 @@
                 "description": "Disable pop-up window for premium account purchase",
                 "native_description": "Enables quicksilver in-app messaging modal",
                 "version": {
-                    "fr": "1.1.70",
+                    "fr": "1.1.59",
                     "to": ""
                 }
             },
@@ -317,7 +317,7 @@
                 "description": "Enable the podcast ads Now Playing Bar experience, including features like the podcast ad Now Playing Bar hat",
                 "native_description": "Enable the podcast ads Now Playing Bar experience, including features like the podcast ad Now Playing Bar hat",
                 "version": {
-                    "fr": "1.1.70",
+                    "fr": "1.1.67",
                     "to": "1.2.50"
                 }
             },
@@ -326,7 +326,7 @@
                 "description": "Enable the Sponsored By section on the Episode Page with Call to Action cards",
                 "native_description": "Enable the Sponsored By section on the Episode Page with Call to Action cards",
                 "version": {
-                    "fr": "1.1.70",
+                    "fr": "1.1.67",
                     "to": "1.2.50"
                 }
             },
@@ -335,7 +335,7 @@
                 "description": "Enable show sponsors section on the Show Page",
                 "native_description": "Enable show sponsors section on the Show Page",
                 "version": {
-                    "fr": "1.1.70",
+                    "fr": "1.1.77",
                     "to": "1.2.50"
                 }
             },
@@ -570,6 +570,33 @@
                 "native_description": "Enable dynamic colors for the app",
                 "version": {
                     "fr": "1.2.47",
+                    "to": "1.2.56"
+                }
+            },
+            "EmbeddedNpvAds": {
+                "name": "enableEmbeddedNpvAds",
+                "description": "Enable embedded display ads on NPV",
+                "native_description": "Enable embedded display ads on NPV",
+                "version": {
+                    "fr": "1.2.57",
+                    "to": ""
+                }
+            },
+            "EnhancedAdsClientDeconfliction": {
+                "name": "enableEnhancedAdsClientDeconfliction",
+                "description": "Enable refactored version of ads orchestrator middleware",
+                "native_description": "Enable refactored version of ads orchestrator middleware",
+                "version": {
+                    "fr": "1.2.57",
+                    "to": ""
+                }
+            },
+            "AdCountUi": {
+                "name": "enableAdCountUi",
+                "description": "Enable ad count feedback in NPV",
+                "native_description": "Enable ad count feedback in NPV",
+                "version": {
+                    "fr": "1.2.59",
                     "to": ""
                 }
             }
@@ -599,7 +626,7 @@
                 "native_description": "Enable Ignore In Recommendations for desktop and web",
                 "version": {
                     "fr": "1.1.87",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "Equalizer": {
@@ -626,7 +653,7 @@
                 "native_description": "Enable Attack on Titan Easter egg turning progress bar red when playing official soundtrack",
                 "version": {
                     "fr": "1.2.6",
-                    "to": ""
+                    "to": "1.2.50"
                 }
             },
             "AlbumReleaseAnniversaries": {
@@ -643,7 +670,7 @@
                 "description": "Show 'Made For You' entry point in the left sidebar",
                 "native_description": "Show 'Made For You' entry point in the left sidebar",
                 "version": {
-                    "fr": "1.1.70",
+                    "fr": "1.1.67",
                     "to": "1.1.95"
                 }
             },
@@ -959,7 +986,7 @@
                 "native_description": "Enables the Saved In section in Aligned Curation",
                 "version": {
                     "fr": "1.2.40",
-                    "to": ""
+                    "to": "1.2.47"
                 }
             },
             "ViewMode": {
@@ -1234,7 +1261,7 @@
             },
             "HomeCarousels": {
                 "name": "enableHomeCarousels",
-                "description": "Enable carousels on home (carousel is temporarily disabled because it causes lags in the main menu)",
+                "description": "Enable carousels on home (causes lags in the main menu 1.2.44-1.2.56)",
                 "native_description": "Enable carousels on home",
                 "version": {
                     "fr": "1.2.44",
@@ -1300,7 +1327,7 @@
                 "description": "Enable Liked Songs section on Artist page",
                 "native_description": "Enable Liked Songs section on Artist page",
                 "version": {
-                    "fr": "1.1.79",
+                    "fr": "1.1.67",
                     "to": "1.2.17"
                 }
             },
@@ -1319,7 +1346,7 @@
                 "native_description": "Enable plus button for creating different types of playlists from global nav bar",
                 "version": {
                     "fr": "1.2.53",
-                    "to": ""
+                    "to": "1.2.56"
                 }
             },
             "ZoomSettingsUIDesktop": {
@@ -1328,7 +1355,7 @@
                 "native_description": "Enable zoom settings from the settings page on Desktop",
                 "version": {
                     "fr": "1.2.53",
-                    "to": ""
+                    "to": "1.2.57"
                 }
             },
             "AmbientModeForMiniplayer": {
@@ -1346,6 +1373,87 @@
                 "native_description": "Enable the Peek NPV feature",
                 "version": {
                     "fr": "1.2.53",
+                    "to": ""
+                }
+            },
+            "AlignedPanelHeaders": {
+                "name": "enableAlignedPanelHeaders",
+                "description": "Enable aligned panel headers",
+                "native_description": "Enable aligned panel headers",
+                "version": {
+                    "fr": "1.2.57",
+                    "to": ""
+                }
+            },
+            "UserCommentsForEpisodes": {
+                "name": "enableUserCommentsForEpisodes",
+                "description": "Enable user comments for podcast episodes",
+                "native_description": "Enable user comments for podcast episodes",
+                "version": {
+                    "fr": "1.2.56",
+                    "to": ""
+                }
+            },
+            "AdsPrioritizeCanvas": {
+                "name": "embeddedAdsPrioritizeCanvas",
+                "description": "When enabled, tracks eligible for canvas will not be eligible for embedded ads",
+                "native_description": "When enabled, tracks eligible for canvas will not be eligible for embedded ads",
+                "version": {
+                    "fr": "1.2.58",
+                    "to": ""
+                }
+            },
+            "NewOverlayScrollbars": {
+                "name": "enableNewOverlayScrollbars",
+                "description": "Enable new overlay scrollbars",
+                "native_description": "Enable new overlay scrollbars",
+                "version": {
+                    "fr": "1.2.58",
+                    "to": ""
+                }
+            },
+            "FullscreenLibrary": {
+                "name": "enableFullscreenLibrary",
+                "description": "Enable fullscreen library",
+                "native_description": "Enable fullscreen library",
+                "version": {
+                    "fr": "1.2.58",
+                    "to": ""
+                }
+            },
+            "ImprovedCinemaMode": {
+                "name": "enableImprovedCinemaMode",
+                "description": "Enable improved cinema mode",
+                "native_description": "Enable improved cinema mode",
+                "version": {
+                    "fr": "1.2.50",
+                    "to": ""
+                }
+            },
+            "ImprovedCinemaModeCanvas": {
+                "name": "enableImprovedCinemaModeCanvas",
+                "description": "Enable canvas support inside improved cinema mode",
+                "native_description": "Enable canvas support inside improved cinema mode",
+                "version": {
+                    "fr": "1.2.56",
+                    "to": ""
+                }
+            },
+            "YlxReverseSorting": {
+                "name": "enableYlxReverseSorting",
+                "description": "Enable reverse sort direction in Your Library",
+                "native_description": "Enable reverse sort direction in Your Library",
+                "version": {
+                    "fr": "1.2.60",
+                    "to": ""
+                }
+            },
+            "BackendSearchHistory": {
+                "name": "enableBackendSearchHistory",
+                "description": "Enable backend search history",
+                "native_description": "Enable backend search history",
+                "version": {
+                    "fr": "1.2.60",
                     "to": ""
                 }
             }
@@ -1469,6 +1577,56 @@
                 "version": {
                     "fr": "1.2.39",
                     "to": "1.2.50"
+                }
+            },
+            "CreateButton": {
+                "name": "enableCreateButton",
+                "description": "Enable create button either in the global navbar or in YLX",
+                "native_description": "Enable create button either in the global navbar or in YLX",
+                "value": "your_library",
+                "version": {
+                    "fr": "1.2.57",
+                    "to": ""
+                }
+            },
+            "AdsDismissTimeInterval": {
+                "name": "embeddedAdsDismissTimeInterval",
+                "description": "How long to wait (in seconds) before autodismissing embedded ad",
+                "native_description": "How long to wait (in seconds) before autodismissing embedded ad",
+                "value": "0",
+                "version": {
+                    "fr": "1.2.59",
+                    "to": ""
+                }
+            },
+            "AdsRefreshTimeInterval": {
+                "name": "embeddedAdsRefreshTimeInterval",
+                "description": "How long to wait (in seconds) between each successful render of embedded ad",
+                "native_description": "How long to wait (in seconds) between each successful render of embedded ad",
+                "value": "99999",
+                "version": {
+                    "fr": "1.2.59",
+                    "to": ""
+                }
+            },
+            "DesktopOnboardingChecklist": {
+                "name": "enableDesktopOnboardingChecklist",
+                "description": "Enable checklist-based onboarding",
+                "native_description": "Enable checklist-based onboarding",
+                "value": "control",
+                "version": {
+                    "fr": "1.2.60",
+                    "to": ""
+                }
+            },
+            "SpotifyOnboardingChecklist": {
+                "name": "enableSpotifyOnboardingChecklist",
+                "description": "Enable checklist-based onboarding",
+                "native_description": "Enable checklist-based onboarding",
+                "value": "control",
+                "version": {
+                    "fr": "1.2.60",
+                    "to": ""
                 }
             }
         },
@@ -1880,6 +2038,13 @@
                 "to": "1.2.29"
             },
             "add": " #desktop\\.settings\\.streamingQuality>option:nth-child(5) {display:none}"
+        },
+        "fix-scrollbar": {
+            "version": {
+                "fr": "1.1.59",
+                "to": ""
+            },
+            "add": " .main-view-container__scroll-node > .os-scrollbar-vertical {top:0px !important}"
         },
         "fix-old-theme": {
             "version": {
