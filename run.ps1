@@ -12,13 +12,16 @@ param
     [Alias("dev")]
     [switch]$devtools,
 
-    [Parameter(HelpMessage = 'Hiding podcasts/episodes/audiobooks from homepage.')]
+    [Parameter(HelpMessage = 'Disable podcasts/episodes/audiobooks from homepage.')]
     [switch]$podcasts_off,
 
-    [Parameter(HelpMessage = 'Hiding Ad-like sections from the homepage')]
+    [Parameter(HelpMessage = 'Disable Ad-like sections from homepage')]
     [switch]$adsections_off,
+
+    [Parameter(HelpMessage = 'Disable canvas from homepage')]
+    [switch]$canvashome_off,
     
-    [Parameter(HelpMessage = 'Do not hiding podcasts/episodes/audiobooks from homepage.')]
+    [Parameter(HelpMessage = 'Do not disable podcasts/episodes/audiobooks from homepage.')]
     [switch]$podcasts_on,
     
     [Parameter(HelpMessage = 'Block Spotify automatic updates.')]
@@ -127,13 +130,17 @@ function Format-LanguageCode {
     )
     
     $supportLanguages = @(
-        'bn', 'cs', 'de', 'el', 'en', 'es', 'fa', 'fi', 'fil', 'fr', 'hi', 'hu', 
+        'be', 'bn', 'cs', 'de', 'el', 'en', 'es', 'fa', 'fi', 'fil', 'fr', 'hi', 'hu', 
         'id', 'it', 'ja', 'ka', 'ko', 'lv', 'pl', 'pt', 'ro', 'ru', 'sk', 'sr', 
         'sv', 'ta', 'tr', 'ua', 'vi', 'zh', 'zh-TW'
     )
     
     # Trim the language code down to two letter code.
     switch -Regex ($LanguageCode) {
+        '^be' {
+            $returnCode = 'be'
+            break
+        }
         '^bn' {
             $returnCode = 'bn'
             break
@@ -372,7 +379,7 @@ if (!($version -and $version -match $match_v)) {
     }
     else {  
         # latest tested version for Win 10-12 
-        $onlineFull = "1.2.60.564.gcc6305cb-914" 
+        $onlineFull = "1.2.63.394.g126b0d89-2269"
     }
 }
 else {
@@ -1098,17 +1105,17 @@ function Helper($paramname) {
                     Move-Json -n "RecentSearchesDropdown" -t $Enable -f $Disable 
                 }
             }
-
             if ([version]$offline -le [version]'1.2.50.335') {
 
                 if (!($funnyprogressbar)) { Move-Json -n 'HeBringsNpb' -t $Enable -f $Disable }
             
             }
 
-            if (!($canvasHome)) { Move-Json -n "canvasHome", "canvasHomeAudioPreviews" -t $Enable -f $Disable }
+            if ([version]$offline -le [version]'1.2.62.580') {
 
-            if (!$newFullscreenMode) { Move-Json -n "ImprovedCinemaMode", "ImprovedCinemaModeCanvas" -t $Enable -f $Disable }
+                if (!$newFullscreenMode) { Move-Json -n "ImprovedCinemaMode", "ImprovedCinemaModeCanvas" -t $Enable -f $Disable }
             
+            }
             # disable subfeed filter chips on home
             if ($homesub_off) { 
                 Move-Json -n "HomeSubfeeds" -t $Enable -f $Disable 
@@ -1316,14 +1323,31 @@ function Helper($paramname) {
             else { Remove-Json -j $VarJs -p 'product_state' }
 
             
-            if ($podcast_off -or $adsections_off) {
-                $type = switch ($true) {
-                    { $podcast_off -and $adsections_off } { "all" }
-                    { $podcast_off -and -not $adsections_off } { "podcast" }
-                    { -not $podcast_off -and $adsections_off } { "section" }
+            $type = $null
+
+            if ($podcast_off -or $adsections_off -or $canvashome_off) {
+    
+                $active_elements = @()
+                if ($podcast_off) { $active_elements += "podcast" }
+                if ($adsections_off) { $active_elements += "section" }
+                if ($canvashome_off) { $active_elements += "canvas" }
+
+                switch ($active_elements.Count) {
+                    3 {
+                        $type = "all"
+                    }
+                    2 {
+                        $type = '[' + (($active_elements | ForEach-Object { "`"$_`"" }) -join ", ") + ']'
+                        $webjson.VariousJs.block_section.replace = $webjson.VariousJs.block_section.replace -replace '\"', ''
+                    }
+                    1 {
+                        $type = $active_elements[0]
+                    }
                 }
+
                 $webjson.VariousJs.block_section.replace = $webjson.VariousJs.block_section.replace -f $type
                 $global:type = $type
+                
             }
             else {
                 Remove-Json -j $VarJs -p 'block_section'
@@ -1676,8 +1700,14 @@ If ($test_spa) {
     # Add discriptions (xpui-desktop-modals.js)
     extract -counts 'one' -method 'zip' -name 'xpui-desktop-modals.js' -helper 'Discriptions'
 
-    # Disable Sentry (vendor~xpui.js)
-    extract -counts 'one' -method 'zip' -name 'vendor~xpui.js' -helper 'DisableSentry'
+    # Disable Sentry 
+    if ( [version]$offline -le [version]"1.2.56.502" ) {  
+        $fileName = 'vendor~xpui.js'
+
+    }
+    else { $fileName = 'xpui.js' }
+
+    extract -counts 'one' -method 'zip' -name $fileName -helper 'DisableSentry'
 
     # Minification of all *.js
     extract -counts 'more' -name '*.js' -helper 'MinJs'
@@ -1697,14 +1727,12 @@ If ($test_spa) {
             $css += $webjson.others.veryhighstream.add
         }
     }
-
     # block subfeeds
-    if ($global:type -eq "all" -or $global:type -eq "podcast") {
+    if ($global:type -match "all" -or $global:type -match "podcast") {
         $css += $webjson.others.block_subfeeds.add
     }
     # scrollbar indent fixes
     $css += $webjson.others.'fix-scrollbar'.add
-    
 
     if ($null -ne $css ) { extract -counts 'one' -method 'zip' -name 'xpui.css' -add $css }
     

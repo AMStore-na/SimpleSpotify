@@ -75,7 +75,7 @@
                 "to": ""
             },
             "match": "((?:{configuration|{resolver|instance):(.).(?:getRemoteConfig|getUrlDispenserServiceClient).+?;)",
-            "replace": "$1const experiments={enable:[],disable:[],custom:[]},setExpValue=(v,e,val)=>v&&(v.set?v.set(e,val):v[e]&&(v[e].value=val)),config=$2.getRemoteConfigResolver?.()||$2.getRemoteConfiguration?.();config&&((values=>{for(const type in experiments)experiments[type].forEach(exp=>setExpValue(values,type==='custom'?exp.name:exp,type==='custom'?exp.value:type==='enable'));(window.Spotx??={}).RemoteExp=values})(config.values||config.activeProperties));"
+            "replace": "$1const experiments={enable:[],disable:[],custom:[]},setExpValue=(v,e,val)=>v&&(v.set?v.set(e,val):v[e]&&(v[e].value=val)),config=$2.getRemoteConfigResolver?.()||$2.getRemoteConfiguration?.();config&&((values=>{for(const type in experiments)experiments[type].forEach(exp=>setExpValue(values,type==='custom'?exp.name:exp,type==='custom'?exp.value:type==='enable'));(window.Aimods??={}).RemoteExp=values})(config.values||config.activeProperties));"
         },
         "DisableExp": {
             "InAppMessaging": {
@@ -129,7 +129,7 @@
                 "native_description": "Enable user fraud signals",
                 "version": {
                     "fr": "1.2.10",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "UserFraudVerificationRequest": {
@@ -138,7 +138,7 @@
                 "native_description": "Enable the IAV component make api requests",
                 "version": {
                     "fr": "1.2.5",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "UserFraudVerification": {
@@ -147,7 +147,7 @@
                 "native_description": "Enable user fraud verification",
                 "version": {
                     "fr": "1.2.3",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "UserFraudCspViolation": {
@@ -156,7 +156,7 @@
                 "native_description": "Enable CSP violation detection",
                 "version": {
                     "fr": "1.2.17",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "EsperantoMigration": {
@@ -291,7 +291,7 @@
                 "native_description": "Enable user fraud signals emitted on page load",
                 "version": {
                     "fr": "1.2.22",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "GabitoAdEvent": {
@@ -543,7 +543,7 @@
                 "native_description": "Enables esperanto migration of the adStateReportManager",
                 "version": {
                     "fr": "1.2.55",
-                    "to": ""
+                    "to": "1.2.60"
                 }
             },
             "EventsInYourLibrary": {
@@ -588,7 +588,7 @@
                 "native_description": "Enable refactored version of ads orchestrator middleware",
                 "version": {
                     "fr": "1.2.57",
-                    "to": ""
+                    "to": "1.2.61"
                 }
             },
             "AdCountUi": {
@@ -597,6 +597,15 @@
                 "native_description": "Enable ad count feedback in NPV",
                 "version": {
                     "fr": "1.2.59",
+                    "to": ""
+                }
+            },
+            "SaxLeaderboardAds": {
+                "name": "enableSaxLeaderboardAds",
+                "description": "Enable SAX Leaderboard Ad Format",
+                "native_description": "Enable SAX Leaderboard Ad Format",
+                "version": {
+                    "fr": "1.2.62",
                     "to": ""
                 }
             }
@@ -806,7 +815,7 @@
                 "native_description": "Enable read along transcripts in the NPV",
                 "version": {
                     "fr": "1.2.17",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "TogglePlaylistColumns": {
@@ -851,7 +860,7 @@
                 "native_description": "Enable Save and Retrieve feature for concerts",
                 "version": {
                     "fr": "1.2.7",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "ConcertsForThisIsPlaylist": {
@@ -860,13 +869,13 @@
                 "native_description": "Enable Tour Card on This is Playlist",
                 "version": {
                     "fr": "1.2.11",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "RemoteDownloads": {
                 "name": "enableRemoteDownloads",
                 "description": "Enable remote download support through the offline2 system",
-                "native_description": "Enable Tour Card on This is Playlist",
+                "native_description": "Enable remote download support through the offline2 system",
                 "version": {
                     "fr": "1.2.8",
                     "to": ""
@@ -896,7 +905,7 @@
                 "native_description": "Display ticket price on Event page",
                 "version": {
                     "fr": "1.2.15",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "DynamicNormalizer": {
@@ -905,7 +914,7 @@
                 "native_description": "Enable the dynamic normalizer/compressor",
                 "version": {
                     "fr": "1.2.14",
-                    "to": ""
+                    "to": "1.2.60"
                 }
             },
             "HeBringsNpb": {
@@ -950,7 +959,7 @@
                 "native_description": "Enable Queue on the right panel",
                 "version": {
                     "fr": "1.2.26",
-                    "to": ""
+                    "to": "1.2.61"
                 }
             },
             "RecentlyPlayedShortcut": {
@@ -1202,7 +1211,7 @@
                 "native_description": "Enables the Spotlight component on home",
                 "version": {
                     "fr": "1.2.37",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "SharingButtonOnMiniPlayer": {
@@ -1265,7 +1274,7 @@
                 "native_description": "Enable carousels on home",
                 "version": {
                     "fr": "1.2.44",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "canvasHome": {
@@ -1274,7 +1283,7 @@
                 "native_description": "Enables the new Feed Baseline for Hybrid Home",
                 "version": {
                     "fr": "1.2.42",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "canvasHomeAudioPreviews": {
@@ -1364,7 +1373,7 @@
                 "native_description": "Enable Ambient Mode for Miniplayer",
                 "version": {
                     "fr": "1.2.55",
-                    "to": ""
+                    "to": "1.2.61"
                 }
             },
             "PeekNpv": {
@@ -1382,7 +1391,7 @@
                 "native_description": "Enable aligned panel headers",
                 "version": {
                     "fr": "1.2.57",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "UserCommentsForEpisodes": {
@@ -1427,7 +1436,7 @@
                 "native_description": "Enable improved cinema mode",
                 "version": {
                     "fr": "1.2.50",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "ImprovedCinemaModeCanvas": {
@@ -1454,6 +1463,24 @@
                 "native_description": "Enable backend search history",
                 "version": {
                     "fr": "1.2.60",
+                    "to": ""
+                }
+            },
+            "WatchFeedEntityPages": {
+                "name": "enableWatchFeedEntityPages",
+                "description": "enabled track fragments in playlists, artists, albums",
+                "native_description": "Enable Watch Feed feature on entity pages",
+                "version": {
+                    "fr": "1.2.56",
+                    "to": ""
+                }
+            },
+            "WatchFeed": {
+                "name": "enableWatchFeed",
+                "description": "Enable Watch Feed feature",
+                "native_description": "Enable Watch Feed feature",
+                "version": {
+                    "fr": "1.2.56",
                     "to": ""
                 }
             }
@@ -1566,7 +1593,7 @@
                 "value": "canvas-play-loop",
                 "version": {
                     "fr": "1.2.33",
-                    "to": ""
+                    "to": "1.2.62"
                 }
             },
             "shareButtonPositioning": {
@@ -1626,6 +1653,16 @@
                 "value": "control",
                 "version": {
                     "fr": "1.2.60",
+                    "to": ""
+                }
+            },
+            "LyricsVariationsInNPV": {
+                "name": "enableLyricsVariationsInNPV",
+                "description": "Enable Lyrics in NPV and reducing accidental view",
+                "native_description": "Enable Lyrics in NPV and reducing accidental view",
+                "value": "CONTROL",
+                "version": {
+                    "fr": "1.2.61",
                     "to": ""
                 }
             }
