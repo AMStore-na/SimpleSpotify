@@ -1023,6 +1023,12 @@ function Helper($paramname) {
             $n = "xpui.css"
             $json = $webjson.others
         }
+        "Fixjs" { 
+            $n = $name
+            $contents = "searchFixes"
+            $name = "patches.json.others."
+            $json = $webjson.others
+        }
         "Cssmin" { 
             # Minification of all *.css
             $contents = "cssmin"
@@ -1324,7 +1330,8 @@ function Helper($paramname) {
 
             
             $type = $null
-
+            $global:type = $null
+            
             if ($podcast_off -or $adsections_off -or $canvashome_off) {
     
                 $active_elements = @()
@@ -1686,7 +1693,17 @@ If ($test_spa) {
         injection -p $xpui_spa_patch -f "aimods-helper/lyrics-color" -n @("rules.css", "colors.css") -c @($rulesContent, $colorsContent) -i "rules.css"
 
     }
-    extract -counts 'one' -method 'zip' -name 'xpui.js' -helper 'VariousofXpui-js' 
+    extract -counts 'one' -method 'zip' -name 'xpui.js' -helper 'VariousofXpui-js'
+    
+    if ([version]$offline -ge [version]"1.2.28.581" -and [version]$offline -le [version]"1.2.57.463") {
+        
+        if ([version]$offline -ge [version]"1.2.45.454") { $typefile = "xpui.js"}
+
+        else { $typefile = "xpui-routes-search.js" }
+
+        extract -counts 'one' -method 'zip' -name $typefile -helper "Fixjs"
+    }
+    
 
     if ($devtools -and [version]$offline -ge [version]"1.2.35.663") {
         extract -counts 'one' -method 'zip' -name 'xpui-routes-desktop-settings.js' -helper 'Dev' 
