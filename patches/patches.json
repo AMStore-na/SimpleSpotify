@@ -309,7 +309,7 @@
                 "native_description": "Enable Your Listening Upsell Banner for free & unauth users",
                 "version": {
                     "fr": "1.2.25",
-                    "to": ""
+                    "to": "1.2.63"
                 }
             },
             "podcast-ads": {
@@ -471,7 +471,7 @@
                 "native_description": "Enable Spotify Brand Lift (SBL) Surveys in the NPV",
                 "version": {
                     "fr": "1.2.43",
-                    "to": ""
+                    "to": "1.2.63"
                 }
             },
             "EFlag": {
@@ -489,7 +489,7 @@
                 "native_description": "Enable impressions on home for impression economy (some impressions will still be logged with this disabled)",
                 "version": {
                     "fr": "1.2.44",
-                    "to": ""
+                    "to": "1.2.63"
                 }
             },
             "SearchImpressions": {
@@ -498,7 +498,7 @@
                 "native_description": "Enable impressions on search for impression economy",
                 "version": {
                     "fr": "1.2.44",
-                    "to": ""
+                    "to": "1.2.63"
                 }
             },
             "StageDesktopDebug": {
@@ -606,6 +606,24 @@
                 "native_description": "Enable SAX Leaderboard Ad Format",
                 "version": {
                     "fr": "1.2.62",
+                    "to": ""
+                }
+            },
+            "EmbeddedAdVisibilityLogging": {
+                "name": "enableEmbeddedAdVisibilityLogging",
+                "description": "When enabled, enhanced visibility logs will be sent for embedded ads",
+                "native_description": "EWhen enabled, enhanced visibility logs will be sent for embedded ads",
+                "version": {
+                    "fr": "1.2.63",
+                    "to": ""
+                }
+            },
+            "Hpto": {
+                "name": "enableHpto",
+                "description": "Enable Hpto announcements on Home",
+                "native_description": "Enable Hpto announcements on Home",
+                "version": {
+                    "fr": "1.2.65",
                     "to": ""
                 }
             }
@@ -1483,6 +1501,24 @@
                     "fr": "1.2.56",
                     "to": ""
                 }
+            },
+            "LyricsScrollToCurrentLineButton": {
+                "name": "enableLyricsScrollToCurrentLineButton",
+                "description": "Enable scroll to current line button in lyrics",
+                "native_description": "Enable scroll to current line button in lyrics",
+                "version": {
+                    "fr": "1.2.65",
+                    "to": ""
+                }
+            },
+            "PiPMiniPlayerSettings": {
+                "name": "enablePiPMiniPlayerSettings",
+                "description": "Enable PiP settings",
+                "native_description": "Enable PiP settings",
+                "version": {
+                    "fr": "1.2.65",
+                    "to": ""
+                }
             }
         },
         "CustomExp": {
@@ -1636,16 +1672,6 @@
                     "to": ""
                 }
             },
-            "DesktopOnboardingChecklist": {
-                "name": "enableDesktopOnboardingChecklist",
-                "description": "Enable checklist-based onboarding",
-                "native_description": "Enable checklist-based onboarding",
-                "value": "control",
-                "version": {
-                    "fr": "1.2.60",
-                    "to": ""
-                }
-            },
             "SpotifyOnboardingChecklist": {
                 "name": "enableSpotifyOnboardingChecklist",
                 "description": "Enable checklist-based onboarding",
@@ -1665,6 +1691,16 @@
                     "fr": "1.2.61",
                     "to": ""
                 }
+            },
+            "SkipNextTooltip": {
+                "name": "enableSkipNextTooltip",
+                "description": "Enable tooltip that shows a preview of the next item in queue",
+                "native_description": "Enable tooltip that shows a preview of the next item in queue",
+                "value": "expanded",
+                "version": {
+                    "fr": "1.2.65",
+                    "to": ""
+                }
             }
         },
         "binary": {
@@ -1682,8 +1718,8 @@
                     "fr": "1.1.59",
                     "to": ""
                 },
-                "add": "slot}(?=.{3,8}override_url)",
-                "match": "slots(?=.{3,8}override_url)",
+                "add": "slot}(?=.{3,8}(override_url|queued_ads))",
+                "match": "slots(?=.{3,8}(override_url|queued_ads))",
                 "replace": "slot}"
             },
             "block_slots_2": {
