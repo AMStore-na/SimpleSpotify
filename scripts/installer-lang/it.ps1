@@ -41,7 +41,7 @@
     FileLocBroken   = "La posizione dei file di Spotify è danneggiata, disinstallare il client di Spotify ed eseguire nuovamente lo script"
     Spicetify       = "Spicetify rilevato, deve essere installato dopo AIMODS-Patch, aprire le azioni consigliate nelle FAQ ? [Y/N]"
     NoRestore       = "AIMODS-Patch è già stato installato, xpui.bak non trovato. `nPer favore, disinstalla Spotify e riapri il file Install.bat"
-    InstallComplete = "installazione completata"
+    InstallComplete = "Installazione completata"
     HostInfo        = "Trovati URL non desiderati nel file hosts"
     HostBak         = "Backup di hosts.bak in corso..."
     HostDel         = "Provo a rimuovere URL non desiderati dal file hosts originale..."
