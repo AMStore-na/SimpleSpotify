@@ -691,45 +691,6 @@ if ($premium) {
     Write-Host ($lang).Prem`n
 }
 
-$spotifyInstalled = (Test-Path -LiteralPath $spotifyExecutable)
-
-# If there is no client or it is outdated, then install
-if (-not $spotifyInstalled -or $upgrade_client) {
-
-    Write-Host ($lang).DownSpoti"" -NoNewline
-    Write-Host  $online -ForegroundColor Green
-    Write-Host ($lang).DownSpoti2`n
-    
-    # Delete old version files of Spotify before installing, leave only profile files
-    $ErrorActionPreference = 'SilentlyContinue'
-    Kill-Spotify
-    Start-Sleep -Milliseconds 600
-    $null = Unlock-Folder 
-    Start-Sleep -Milliseconds 200
-    Get-ChildItem $spotifyDirectory -Exclude 'Users', 'prefs' | Remove-Item -Recurse -Force 
-    Start-Sleep -Milliseconds 200
-
-    # Client download
-    downloadSp
-    Write-Host
-
-    Start-Sleep -Milliseconds 200
-
-    # Client installation
-    Start-Process -FilePath explorer.exe -ArgumentList $PWD\SpotifySetup.exe
-    while (-not (get-process | Where-Object { $_.ProcessName -eq 'SpotifySetup' })) {}
-    wait-process -name SpotifySetup
-    Kill-Spotify
-
-    # Upgrade check version Spotify offline
-    $offline = (Get-Item $spotifyExecutable).VersionInfo.FileVersion
-
-    # Upgrade check version Spotify.bak
-    $offline_bak = (Get-Item $exe_bak).VersionInfo.FileVersion
-}
-
-
-
 # Delete Spotify shortcut if it is on desktop
 if ($no_shortcut) {
     $ErrorActionPreference = 'SilentlyContinue'
