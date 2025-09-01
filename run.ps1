@@ -1,5 +1,6 @@
 param
 (
+
     [Parameter(HelpMessage = "Change recommended version of Spotify.")]
     [Alias("v")]
     [string]$version,
@@ -59,6 +60,7 @@ param
 
     [Parameter(HelpMessage = 'Enable top search bar.')]
     [switch]$topsearchbar,
+    
     [Parameter(HelpMessage = 'Enable new fullscreen mode (Experimental)')]
     [switch]$newFullscreenMode,
 
@@ -376,7 +378,7 @@ if (!($version -and $version -match $match_v)) {
     }
     else {  
         # latest tested version for Win 10-12 
-        $onlineFull = "1.2.67.557.g2d9c92d2"
+        $onlineFull = "1.2.68.528.g50f97d42-1008"
     }
 }
 else {
