@@ -1,6 +1,6 @@
 param
 (
-
+    
     [Parameter(HelpMessage = "Change recommended version of Spotify.")]
     [Alias("v")]
     [string]$version,
@@ -60,7 +60,6 @@ param
 
     [Parameter(HelpMessage = 'Enable top search bar.')]
     [switch]$topsearchbar,
-    
     [Parameter(HelpMessage = 'Enable new fullscreen mode (Experimental)')]
     [switch]$newFullscreenMode,
 
@@ -378,7 +377,7 @@ if (!($version -and $version -match $match_v)) {
     }
     else {  
         # latest tested version for Win 10-12 
-        $onlineFull = "1.2.68.528.g50f97d42-1008"
+        $onlineFull = "1.2.67.557.g2d9c92d2"
     }
 }
 else {
@@ -692,6 +691,170 @@ New-Item -Type Directory -Name "aimods_Temp-$(Get-Date -UFormat '%Y-%m-%d_%H-%M-
 if ($premium) {
     Write-Host ($lang).Prem`n
 }
+
+$spotifyInstalled = (Test-Path -LiteralPath $spotifyExecutable)
+
+if ($spotifyInstalled) {
+    
+    # Check version Spotify offline
+    $offline = (Get-Item $spotifyExecutable).VersionInfo.FileVersion
+ 
+    # Version comparison
+    # converting strings to arrays of numbers using the -split operator and a foreach loop
+    
+    $arr1 = $online -split '\.' | foreach { [int]$_ }
+    $arr2 = $offline -split '\.' | foreach { [int]$_ }
+
+    # compare each element of the array in order from most significant to least significant.
+    for ($i = 0; $i -lt $arr1.Length; $i++) {
+        if ($arr1[$i] -gt $arr2[$i]) {
+            $oldversion = $true
+            break
+        }
+        elseif ($arr1[$i] -lt $arr2[$i]) {
+            $testversion = $true
+            break
+        }
+    }
+  
+    # Unsupported version Spotify
+    if ($testversion) {
+        # Submit unsupported version of Spotify to google form for further processing
+        try { 
+            
+            # Country check
+            $country = [System.Globalization.RegionInfo]::CurrentRegion.EnglishName
+
+            $txt = [IO.File]::ReadAllText($spotifyExecutable)
+            $regex = "(?<![\w\-])(\d+)\.(\d+)\.(\d+)\.(\d+)(\.g[0-9a-f]{8})(?![\w\-])"
+            $matches = [regex]::Matches($txt, $regex)
+            $ver = $matches[0].Value
+
+            $Parameters = @{
+                Uri    = 'https://docs.google.com/forms/d/e/1FAIpQLSegGsAgilgQ8Y36uw-N7zFF6Lh40cXNfyl1ecHPpZcpD8kdHg/formResponse'
+                Method = 'POST'
+                Body   = @{
+                    'entry.620327948'  = $ver
+                    'entry.1951747592' = $country
+                    'entry.1402903593' = $win_os
+                    'entry.860691305'  = $psv
+                    'entry.2067427976' = $online + " < " + $offline
+                }   
+            }
+           # $null = Invoke-WebRequest -useb @Parameters 
+        }
+        catch {
+            Write-Host 'Unable to submit new version of Spotify' 
+            Write-Host "error description: "$Error[0]
+        }
+
+        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) {
+            Write-Host ($lang).NewV`n
+        }
+        if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
+            do {
+                Write-Host (($lang).NewV2 -f $offline, $online)
+                $ch = Read-Host -Prompt (($lang).NewV3 -f $offline)
+                Write-Host
+                if (!($ch -eq 'n' -or $ch -eq 'y')) {
+                    incorrectValue
+                }
+            }
+            while ($ch -notmatch '^y$|^n$')
+        }
+        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) { $ch = 'n' }
+        if ($ch -eq 'y') { $upgrade_client = $false }
+        if ($ch -eq 'n') {
+            if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
+                do {
+                    $ch = Read-Host -Prompt (($lang).Recom -f $online)
+                    Write-Host
+                    if (!($ch -eq 'n' -or $ch -eq 'y')) {
+                        incorrectValue
+                    }
+                }
+                while ($ch -notmatch '^y$|^n$')
+            }
+            if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) { 
+                $ch = 'y' 
+                Write-Host ($lang).AutoUpd`n
+            }
+            if ($ch -eq 'y') {
+                $upgrade_client = $true
+                $downgrading = $true
+                if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
+                    do {
+                        $ch = Read-Host -Prompt (($lang).DelOrOver -f $offline)
+                        Write-Host
+                        if (!($ch -eq 'n' -or $ch -eq 'y')) {
+                            incorrectValue
+                        }
+                    }
+                    while ($ch -notmatch '^y$|^n$')
+                }
+                if ($confirm_spoti_recomended_uninstall) { $ch = 'y' }
+                if ($confirm_spoti_recomended_over) { $ch = 'n' }
+                if ($ch -eq 'y') {
+                    Write-Host ($lang).DelNew`n
+                    $null = Unlock-Folder
+                    cmd /c $spotifyExecutable /UNINSTALL /SILENT
+                    wait-process -name SpotifyUninstall
+                    Start-Sleep -Milliseconds 200
+                    if (Test-Path $spotifyDirectory) { Remove-Item -Recurse -Force -LiteralPath $spotifyDirectory }
+                    if (Test-Path $spotifyDirectory2) { Remove-Item -Recurse -Force -LiteralPath $spotifyDirectory2 }
+                    if (Test-Path $spotifyUninstall ) { Remove-Item -Recurse -Force -LiteralPath $spotifyUninstall }
+                }
+                if ($ch -eq 'n') { $ch = $null }
+            }
+
+            if ($ch -eq 'n') {
+                Write-Host ($lang).StopScript
+                $tempDirectory = $PWD
+                Pop-Location
+                Start-Sleep -Milliseconds 200
+                Remove-Item -Recurse -LiteralPath $tempDirectory 
+                Pause
+                Exit
+            }
+        }
+    }
+}
+# If there is no client or it is outdated, then install
+if (-not $spotifyInstalled -or $upgrade_client) {
+
+    Write-Host ($lang).DownSpoti"" -NoNewline
+    Write-Host  $online -ForegroundColor Green
+    Write-Host ($lang).DownSpoti2`n
+    
+    # Delete old version files of Spotify before installing, leave only profile files
+    $ErrorActionPreference = 'SilentlyContinue'
+    Kill-Spotify
+    Start-Sleep -Milliseconds 600
+    $null = Unlock-Folder 
+    Start-Sleep -Milliseconds 200
+    Get-ChildItem $spotifyDirectory -Exclude 'Users', 'prefs' | Remove-Item -Recurse -Force 
+    Start-Sleep -Milliseconds 200
+
+    # Client download
+    downloadSp
+    Write-Host
+
+    Start-Sleep -Milliseconds 200
+
+    # Client installation
+    Start-Process -FilePath explorer.exe -ArgumentList $PWD\SpotifySetup.exe
+    while (-not (get-process | Where-Object { $_.ProcessName -eq 'SpotifySetup' })) {}
+    wait-process -name SpotifySetup
+    Kill-Spotify
+
+    # Upgrade check version Spotify offline
+    $offline = (Get-Item $spotifyExecutable).VersionInfo.FileVersion
+
+    # Upgrade check version Spotify.bak
+    $offline_bak = (Get-Item $exe_bak).VersionInfo.FileVersion
+}
+
+
 
 # Delete Spotify shortcut if it is on desktop
 if ($no_shortcut) {
