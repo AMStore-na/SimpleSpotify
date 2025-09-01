@@ -369,7 +369,7 @@ if ($version) {
 $old_os = $win7 -or $win8 -or $win8_1
 
 # Recommended version for Win 7-8.1 
-$last_win7_full = "1.2.5.1006.g22820f93-1078"
+$last_win7_full = "1.2.68.528.g50f97d42-1008"
 
 if (!($version -and $version -match $match_v)) {
     if ($old_os) { 
