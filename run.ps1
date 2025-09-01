@@ -740,7 +740,7 @@ if ($spotifyInstalled) {
                     'entry.2067427976' = $online + " < " + $offline
                 }   
             }
-            $null = Invoke-WebRequest -useb @Parameters 
+           # $null = Invoke-WebRequest -useb @Parameters 
         }
         catch {
             Write-Host 'Unable to submit new version of Spotify' 
@@ -1795,7 +1795,6 @@ if ($test_spa) {
     $test_bak_spa = Test-Path -Path $bak_spa
 
     # Make a backup copy of xpui.spa if it is original
-    Add-Type -Assembly 'System.IO.Compression.FileSystem'
     $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update')
     $entry = $zip.GetEntry('xpui.js')
     $reader = New-Object System.IO.StreamReader($entry.Open())
