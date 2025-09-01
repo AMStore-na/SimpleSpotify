@@ -693,61 +693,6 @@ if ($premium) {
 
 $spotifyInstalled = (Test-Path -LiteralPath $spotifyExecutable)
 
-if ($spotifyInstalled) {
-    
-    # Check version Spotify offline
-    $offline = (Get-Item $spotifyExecutable).VersionInfo.FileVersion
- 
-    # Version comparison
-    # converting strings to arrays of numbers using the -split operator and a foreach loop
-    
-    $arr1 = $online -split '\.' | foreach { [int]$_ }
-    $arr2 = $offline -split '\.' | foreach { [int]$_ }
-
-    # compare each element of the array in order from most significant to least significant.
-    for ($i = 0; $i -lt $arr1.Length; $i++) {
-        if ($arr1[$i] -gt $arr2[$i]) {
-            $oldversion = $true
-            break
-        }
-        elseif ($arr1[$i] -lt $arr2[$i]) {
-            $testversion = $true
-            break
-        }
-    }
-  
-    # Unsupported version Spotify
-    if ($testversion) {
-        # Submit unsupported version of Spotify to google form for further processing
-        try { 
-            
-            # Country check
-            $country = [System.Globalization.RegionInfo]::CurrentRegion.EnglishName
-
-            $txt = [IO.File]::ReadAllText($spotifyExecutable)
-            $regex = "(?<![\w\-])(\d+)\.(\d+)\.(\d+)\.(\d+)(\.g[0-9a-f]{8})(?![\w\-])"
-            $matches = [regex]::Matches($txt, $regex)
-            $ver = $matches[0].Value
-
-            $Parameters = @{
-                Uri    = 'https://docs.google.com/forms/d/e/1FAIpQLSegGsAgilgQ8Y36uw-N7zFF6Lh40cXNfyl1ecHPpZcpD8kdHg/formResponse'
-                Method = 'POST'
-                Body   = @{
-                    'entry.620327948'  = $ver
-                    'entry.1951747592' = $country
-                    'entry.1402903593' = $win_os
-                    'entry.860691305'  = $psv
-                    'entry.2067427976' = $online + " < " + $offline
-                }   
-            }
-           # $null = Invoke-WebRequest -useb @Parameters 
-        }
-        catch {
-            Write-Host 'Unable to submit new version of Spotify' 
-            Write-Host "error description: "$Error[0]
-        }
-    }
-}
 # If there is no client or it is outdated, then install
 if (-not $spotifyInstalled -or $upgrade_client) {
 
