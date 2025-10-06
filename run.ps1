@@ -60,6 +60,7 @@ param
 
     [Parameter(HelpMessage = 'Enable top search bar.')]
     [switch]$topsearchbar,
+
     [Parameter(HelpMessage = 'Enable new fullscreen mode (Experimental)')]
     [switch]$newFullscreenMode,
 
@@ -285,7 +286,11 @@ function Format-LanguageCode {
 $spotifyDirectory = Join-Path $env:APPDATA 'Spotify'
 $spotifyDirectory2 = Join-Path $env:LOCALAPPDATA 'Spotify'
 $spotifyExecutable = Join-Path $spotifyDirectory 'Spotify.exe'
+$spotifyDll = Join-Path $spotifyDirectory 'Spotify.dll' 
+$chrome_elf = Join-Path $spotifyDirectory 'chrome_elf.dll'
 $exe_bak = Join-Path $spotifyDirectory 'Spotify.bak'
+$dll_bak = Join-Path $spotifyDirectory 'Spotify.dll.bak'
+$chrome_elf_bak = Join-Path $spotifyDirectory 'chrome_elf.dll.bak'
 $spotifyUninstall = Join-Path ([System.IO.Path]::GetTempPath()) 'SpotifyUninstall.exe'
 $start_menu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Spotify.lnk'
 
@@ -1969,6 +1974,17 @@ if ($test_spa) {
     $patched_by_aimods = $reader.ReadToEnd()
     $reader.Close()
 
+
+    if ($offline -ge [version]'1.2.70.404') {
+        
+        $spotify_binary_bak = $dll_bak 
+        $spotify_binary = $spotifyDll
+    }
+    else {
+        $spotify_binary_bak = $exe_bak
+        $spotify_binary = $spotifyExecutable
+    }
+
     If ($patched_by_aimods -match 'patched by aimods') {
         $zip.Dispose()    
 
@@ -1988,7 +2004,7 @@ if ($test_spa) {
                 }
                 else {
                     $binary_exe_bak = [System.IO.Path]::GetFileName($exe_bak)
-                    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run SpotX again" -f $binary_exe_bak)
+                    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run AIMODS-SimpleSpotify again" -f $binary_exe_bak)
                     Pause
                     Exit
                 }
@@ -1999,7 +2015,7 @@ if ($test_spa) {
                 }
                 else {
                     $binary_chrome_elf_bak = [System.IO.Path]::GetFileName($chrome_elf_bak)
-                    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run SpotX again" -f $binary_chrome_elf_bak)
+                    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run AIMODS-SimpleSpotify again" -f $binary_chrome_elf_bak)
                     Pause
                     Exit
                 }
@@ -2222,7 +2238,7 @@ if ($regex1 -and $regex2 -and $regex3 -and $regex4 -and $regex5) {
 
 if (-not (Test-Path -LiteralPath $spotify_binary_bak)) {
     $name_binary = [System.IO.Path]::GetFileName($spotify_binary_bak)
-    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run SpotX again" -f $name_binary)
+    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run AIMODS-SimpleSpotify again" -f $name_binary)
     Pause
     Exit
 }
