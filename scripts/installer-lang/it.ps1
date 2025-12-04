@@ -3,7 +3,7 @@
 ╔════════════════════════════════════╗
 ║ Benvenuto su Spotify MOD di AIMODS ║
 ╚════════════════════════════════════╝"
-        Incorrect       = "Ops, un valore sbagliato,"
+    Incorrect       = "Ops, un valore sbagliato,"
     Incorrect2      = "inserisci di nuovo "
     Download        = "Errore nel download"
     Download2       = "Nuova richiesta in 5 secondi..."
