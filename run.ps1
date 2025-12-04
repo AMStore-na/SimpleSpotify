@@ -273,15 +273,24 @@ function Format-LanguageCode {
         
     # Checking the long language code
     if ($long_code -and $returnCode -NotIn $supportLanguages) {
-        $returnCode = $returnCode -split "-" | Select-Object -First 1
+        if ($returnCode -match '-') {
+            $intermediateCode = $returnCode.Substring(0, $returnCode.LastIndexOf('-'))
+            
+            if ($intermediateCode -in $supportLanguages) {
+                $returnCode = $intermediateCode
+            }
+            else {
+                $returnCode = $returnCode -split "-" | Select-Object -First 1
+            }
+        }
     }
-    # Checking the short language code
+
     if ($returnCode -NotIn $supportLanguages) {
-        # If the language code is not supported default to English.
+
         $returnCode = 'it'
     }
     return $returnCode 
-}
+}   
 
 $spotifyDirectory = Join-Path $env:APPDATA 'Spotify'
 $spotifyDirectory2 = Join-Path $env:LOCALAPPDATA 'Spotify'
@@ -305,6 +314,26 @@ if ($psv -ge 7) {
 # add Tls12
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;
 
+function Stop-Script {
+    param(
+        [string]$Message = ($lang).StopScript
+    )
+
+    Write-Host $Message
+
+    switch ($Host.Name) {
+        "Windows PowerShell ISE Host" {
+            pause
+            break
+        }
+        default {
+            Write-Host ($lang).PressAnyKey
+            [void][System.Console]::ReadKey($true)
+            break
+        }
+    }
+    Exit
+}
 function Get-Link {
     param (
         [Alias("e")]
@@ -382,7 +411,7 @@ if (!($version -and $version -match $match_v)) {
     }
     else {  
         # latest tested version for Win 10-12 
-        $onlineFull = "1.2.74.471.g95134d25-1118"
+        $onlineFull = "1.2.78.418.gaeeb5ebd-1067"
     }
 }
 else {
@@ -557,13 +586,11 @@ function downloadSp() {
             $Error[0].Exception
             Write-Host
             Write-Host ($lang).Download4`n
-            ($lang).StopScript
             $tempDirectory = $PWD
             Pop-Location
             Start-Sleep -Milliseconds 200
             Remove-Item -Recurse -LiteralPath $tempDirectory
-            Pause
-            Exit
+            Stop-Script
         }
     }
 } 
@@ -644,9 +671,7 @@ if ($win10 -or $win11 -or $win8_1 -or $win8 -or $win12) {
             Get-AppxPackage -Name SpotifyAB.SpotifyMusic | Remove-AppxPackage
         }
         if ($ch -eq 'n') {
-            Read-Host ($lang).StopScript 
-            Pause
-            Exit
+            Stop-Script
         }
     }
 }
@@ -724,34 +749,40 @@ if ($spotifyInstalled) {
   
     # Unsupported version Spotify
     if ($testversion) {
+
         # Submit unsupported version of Spotify to google form for further processing
-        try { 
-            
-            # Country check
-            $country = [System.Globalization.RegionInfo]::CurrentRegion.EnglishName
 
-            $txt = [IO.File]::ReadAllText($spotifyExecutable)
-            $regex = "(?<![\w\-])(\d+)\.(\d+)\.(\d+)\.(\d+)(\.g[0-9a-f]{8})(?![\w\-])"
-            $matches = [regex]::Matches($txt, $regex)
-            $ver = $matches[0].Value
+        $binary = if (Test-Path $spotifyDll) {
+            $spotifyDll
+        }
+        else {
+            $spotifyExecutable
+        }
 
-            $Parameters = @{
-                Uri    = 'https://docs.google.com/forms/d/e/1FAIpQLSegGsAgilgQ8Y36uw-N7zFF6Lh40cXNfyl1ecHPpZcpD8kdHg/formResponse'
-                Method = 'POST'
-                Body   = @{
-                    'entry.620327948'  = $ver
-                    'entry.1951747592' = $country
-                    'entry.1402903593' = $win_os
-                    'entry.860691305'  = $psv
-                    'entry.2067427976' = $online + " < " + $offline
-                }   
+        Start-Job -ScriptBlock {
+            param($binary, $win_os, $psv, $online, $offline)
+
+            try { 
+                $country = [System.Globalization.RegionInfo]::CurrentRegion.EnglishName
+                $txt = [IO.File]::ReadAllText($binary)
+                $regex = "(?<![\w\-])(\d+)\.(\d+)\.(\d+)\.(\d+)(\.g[0-9a-f]{8})(?![\w\-])"
+                $matches = [regex]::Matches($txt, $regex)
+                $ver = $matches[0].Value
+                $Parameters = @{
+                    Uri    = 'https://docs.google.com/forms/d/e/1FAIpQLSegGsAgilgQ8Y36uw-N7zFF6Lh40cXNfyl1ecHPpZcpD8kdHg/formResponse'
+                    Method = 'POST'
+                    Body   = @{
+                        'entry.620327948'  = $ver
+                        'entry.1951747592' = $country
+                        'entry.1402903593' = $win_os
+                        'entry.860691305'  = $psv
+                        'entry.2067427976' = $online + " < " + $offline
+                    }   
+                }
+                Invoke-WebRequest @Parameters -UseBasicParsing -ErrorAction SilentlyContinue | Out-Null
             }
-           # $null = Invoke-WebRequest -useb @Parameters 
-        }
-        catch {
-            Write-Host 'Unable to submit new version of Spotify' 
-            Write-Host "error description: "$Error[0]
-        }
+            catch { }
+        } -ArgumentList $binary, $win_os, $psv, $online, $offline | Out-Null
 
         if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) {
             Write-Host ($lang).NewV`n
@@ -813,13 +844,11 @@ if ($spotifyInstalled) {
             }
 
             if ($ch -eq 'n') {
-                Write-Host ($lang).StopScript
                 $tempDirectory = $PWD
                 Pop-Location
                 Start-Sleep -Milliseconds 200
                 Remove-Item -Recurse -LiteralPath $tempDirectory 
-                Pause
-                Exit
+                Stop-Script
             }
         }
     }
@@ -948,14 +977,11 @@ $webjson = Get -Url (Get-Link -e "/patches/patches.json") -RetrySeconds 5
 if ($webjson -eq $null) { 
     Write-Host
     Write-Host "Failed to get patches.json" -ForegroundColor Red
-    Write-Host ($lang).StopScript
     $tempDirectory = $PWD
     Pop-Location
     Start-Sleep -Milliseconds 200
     Remove-Item -Recurse -LiteralPath $tempDirectory 
-    Pause
-    Exit
-
+    Stop-Script
 }
 
 
@@ -1089,9 +1115,6 @@ function Helper($paramname) {
 
             # temporarily disable collapsing right sidebar
             Move-Json -n 'PeekNpv' -t $Enable -f $Disable
-
-            # notifications are temporarily disabled
-            Move-Json -n 'NotificationCenter' -t $Enable -f $Disable
  
             if ($podcast_off) { Move-Json -n 'HomePin' -t $Enable -f $Disable }
 
@@ -1338,37 +1361,6 @@ function Helper($paramname) {
             }
             else { Remove-Json -j $VarJs -p 'product_state' }
 
-            
-            $type = $null
-            $global:type = $null
-            
-            if ($podcast_off -or $adsections_off -or $canvashome_off) {
-    
-                $active_elements = @()
-                if ($podcast_off) { $active_elements += "podcast" }
-                if ($adsections_off) { $active_elements += "section" }
-                if ($canvashome_off) { $active_elements += "canvas" }
-
-                switch ($active_elements.Count) {
-                    3 {
-                        $type = "all"
-                    }
-                    2 {
-                        $type = '[' + (($active_elements | ForEach-Object { "`"$_`"" }) -join ", ") + ']'
-                        $webjson.VariousJs.block_section.replace = $webjson.VariousJs.block_section.replace -replace '\"', ''
-                    }
-                    1 {
-                        $type = $active_elements[0]
-                    }
-                }
-
-                $webjson.VariousJs.block_section.replace = $webjson.VariousJs.block_section.replace -f $type
-                $global:type = $type
-                
-            }
-            else {
-                Remove-Json -j $VarJs -p 'block_section'
-            }
 
             $name = "patches.json.VariousJs."
             $n = "xpui.js"
@@ -1655,86 +1647,201 @@ function Extract-WebpackModules {
 }
 
 function Reset-Dll-Sign {
-    param(
-        [Parameter(Mandatory = $true)]
+    param (
         [string]$FilePath
     )
 
-    $searchPattern = [byte[]](
-        0x30, 0x01, 0x00, 0x00, 0x5B, 0xC3, 0xCC, 0xCC, 0x48, 0x89, 0x5C, 0x24, 0x18, 0x55
-    )
-    $replacePattern = [byte[]](
-        0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3
-    )
-    $bytesToReplaceCount = 6
+    $TargetStringText = "Check failed: sep_pos != std::wstring::npos."
 
-    if (-not (Test-Path $FilePath -PathType Leaf)) {
-        Write-Error "File not found at path: $FilePath"
-        Write-Host ($lang).StopScript
-        Pause
-        Exit
+    $Patch_x64 = "B8 01 00 00 00 C3"
+
+    $Patch_ARM64 = "20 00 80 52 C0 03 5F D6"
+
+    $Patch_x64 = [byte[]]($Patch_x64 -split ' ' | ForEach-Object { [Convert]::ToByte($_, 16) })
+    $Patch_ARM64 = [byte[]]($Patch_ARM64 -split ' ' | ForEach-Object { [Convert]::ToByte($_, 16) })
+
+    $csharpCode = @"
+using System;
+using System.Collections.Generic;
+
+public class ScannerCore {
+    public static int FindBytes(byte[] data, byte[] pattern) {
+        for (int i = 0; i < data.Length - pattern.Length; i++) {
+            bool match = true;
+            for (int j = 0; j < pattern.Length; j++) {
+                if (data[i + j] != pattern[j]) { match = false; break; }
+            }
+            if (match) return i;
+        }
+        return -1;
     }
 
-    $fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
-    $peHeaderOffset = [System.BitConverter]::ToUInt32($fileBytes, 0x3C)
-    $fileHeaderOffset = $peHeaderOffset + 4
-    $archInfo = Get-PEArchitectureOffsets -bytes $fileBytes -fileHeaderOffset $fileHeaderOffset
-    if ($archInfo.Architecture -eq 'ARM64') {
-        Write-Warning ("Your version {0} on ARM architecture is not supported by the patcher. Please use builds 1.2.69 and below." -f $offline)
-        Write-Host ($lang).StopScript
-        Pause
-        Exit
-    }
+    public static List<int> FindXref_ARM64(byte[] data, ulong stringRVA, ulong sectionRVA, uint sectionRawPtr, uint sectionSize) {
+        List<int> results = new List<int>();
+        for (uint i = 0; i < sectionSize; i += 4) {
+            uint fileOffset = sectionRawPtr + i;
+            if (fileOffset + 8 > data.Length) break;
+            uint inst1 = BitConverter.ToUInt32(data, (int)fileOffset);
+            
+            // ADRP
+            if ((inst1 & 0x9F000000) == 0x90000000) {
+                int rd = (int)(inst1 & 0x1F);
+                long immLo = (inst1 >> 29) & 3;
+                long immHi = (inst1 >> 5) & 0x7FFFF;
+                long imm = (immHi << 2) | immLo;
+                if ((imm & 0x100000) != 0) { imm |= unchecked((long)0xFFFFFFFFFFE00000); }
+                imm = imm << 12; 
+                ulong pc = sectionRVA + i;
+                ulong pcPage = pc & 0xFFFFFFFFFFFFF000; 
+                ulong page = (ulong)((long)pcPage + imm);
 
-    try {
-        Write-Verbose "Reading file..."
-        $fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
-        Write-Verbose "File read. Size: $($fileBytes.Length) bytes."
-        
-        $offset = -1
-        $searchLimit = $fileBytes.Length - $searchPattern.Length
-        
-        Write-Verbose "Searching for byte sequence..."
-        for ($i = 0; $i -le $searchLimit; $i++) {
-            $match = $true
-            for ($j = 0; $j -lt $searchPattern.Length; $j++) {
-                if ($fileBytes[$i + $j] -ne $searchPattern[$j]) {
-                    $match = $false
-                    break
+                uint inst2 = BitConverter.ToUInt32(data, (int)fileOffset + 4);
+                // ADD
+                if ((inst2 & 0xFF800000) == 0x91000000) {
+                    int rn = (int)((inst2 >> 5) & 0x1F);
+                    if (rn == rd) {
+                        long imm12 = (inst2 >> 10) & 0xFFF;
+                        ulong target = page + (ulong)imm12;
+                        if (target == stringRVA) { results.Add((int)fileOffset); }
+                    }
                 }
             }
-            if ($match) {
-                $offset = $i
-                break
+        }
+        return results;
+    }
+
+    public static int FindStart(byte[] data, int startOffset, bool isArm) {
+        int step = isArm ? 4 : 1;
+        if (isArm && (startOffset % 4 != 0)) { startOffset -= (startOffset % 4); }
+
+        for (int i = startOffset; i > 0; i -= step) {
+            if (isArm) {
+                if (i < 4) break;
+                uint currInst = BitConverter.ToUInt32(data, i);
+                // ARM64 Prologue: STP X29, X30, [SP, -imm]! -> FD 7B .. A9
+                if ((currInst & 0xFF00FFFF) == 0xA9007BFD) { return i; }
+            } else {
+                // x64 Prologue: Padding 0xCC
+                if (data[i] != 0xCC && data[i-1] == 0xCC) return i;
+            }
+            if (startOffset - i > 20000) break; 
+        }
+        return 0;
+    }
+}
+"@
+
+    if (-not ([System.Management.Automation.PSTypeName]'ScannerCore').Type) {
+        Add-Type -TypeDefinition $csharpCode
+    }
+    
+    Write-Verbose "Loading file: $FilePath"
+    if (-not (Test-Path $FilePath)) { 
+        Write-Warning "File Spotify.dll not found"
+        Stop-Script
+    }
+    $bytes = [System.IO.File]::ReadAllBytes($FilePath)
+
+    try {
+        $e_lfanew = [BitConverter]::ToInt32($bytes, 0x3C)
+        $Machine = [BitConverter]::ToUInt16($bytes, $e_lfanew + 4)
+        $IsArm64 = $false
+        $ArchName = "Unknown"
+        
+        if ($Machine -eq 0x8664) { $ArchName = "x64"; $IsArm64 = $false }
+        elseif ($Machine -eq 0xAA64) { $ArchName = "ARM64"; $IsArm64 = $true }
+        else { 
+            Write-Warning "Architecture not supported for patching Spotify.dll"
+            Stop-Script
+        }
+
+        Write-Verbose "Architecture: $ArchName"
+
+        $NumberOfSections = [BitConverter]::ToUInt16($bytes, $e_lfanew + 0x06)
+        $SizeOfOptionalHeader = [BitConverter]::ToUInt16($bytes, $e_lfanew + 0x14)
+        $SectionTableStart = $e_lfanew + 0x18 + $SizeOfOptionalHeader
+        
+        $Sections = @(); $CodeSection = $null
+        for ($i = 0; $i -lt $NumberOfSections; $i++) {
+            $secEntry = $SectionTableStart + ($i * 40)
+            $VA = [BitConverter]::ToUInt32($bytes, $secEntry + 12)
+            $RawSize = [BitConverter]::ToUInt32($bytes, $secEntry + 16)
+            $RawPtr = [BitConverter]::ToUInt32($bytes, $secEntry + 20)
+            $Chars = [BitConverter]::ToUInt32($bytes, $secEntry + 36)
+            $SecObj = [PSCustomObject]@{ VA = $VA; RawPtr = $RawPtr; RawSize = $RawSize }
+            $Sections += $SecObj
+            if (($Chars -band 0x20) -ne 0 -and $CodeSection -eq $null) { $CodeSection = $SecObj }
+        }
+    }
+    catch { 
+        Write-Warning "PE Error in Spotify.dll"
+        Stop-Script
+    }
+
+    function Get-RVA($FileOffset) {
+        foreach ($sec in $Sections) {
+            if ($FileOffset -ge $sec.RawPtr -and $FileOffset -lt ($sec.RawPtr + $sec.RawSize)) {
+                return ($FileOffset - $sec.RawPtr) + $sec.VA
             }
         }
-        
-        if ($offset -eq -1) {
-            Write-Warning "Required byte sequence not found for the signature reset patch"
-            Write-Host ($lang).StopScript
-            Pause
-            Exit
-        }
-        
-        Write-Verbose "Sequence found at offset: 0x$($offset.ToString('X'))"
-        
-        $patchOffset = $offset + ($searchPattern.Length - $bytesToReplaceCount)
-        
-        Write-Verbose "Applying patch at offset: 0x$($patchOffset.ToString('X'))"
-        
-        for ($i = 0; $i -lt $replacePattern.Length; $i++) {
-            $fileBytes[$patchOffset + $i] = $replacePattern[$i]
-        }
-        
-        Write-Verbose "Writing patched file..."
-        [System.IO.File]::WriteAllBytes($FilePath, $fileBytes)
-
+        return 0
     }
-    catch {
-        Write-Error "An error occurred: $_"
-        Write-Host ($lang).StopScript
-        Pause
-        Exit
+
+    Write-Verbose "Searching for function..."
+    $StringBytes = [System.Text.Encoding]::ASCII.GetBytes($TargetStringText)
+    $StringOffset = [ScannerCore]::FindBytes($bytes, $StringBytes)
+    if ($StringOffset -eq -1) { 
+        Write-Warning "String not found in Spotify.dll"
+        Stop-Script
+    }
+    $StringRVA = Get-RVA $StringOffset
+
+    $PatchOffset = 0
+    if (-not $IsArm64) {
+        $RawStart = $CodeSection.RawPtr; $RawEnd = $RawStart + $CodeSection.RawSize
+        for ($i = $RawStart; $i -lt $RawEnd; $i++) {
+            if ($bytes[$i] -eq 0x48 -and $bytes[$i + 1] -eq 0x8D -and $bytes[$i + 2] -eq 0x15) {
+                $Rel = [BitConverter]::ToInt32($bytes, $i + 3)
+                $Target = (Get-RVA $i) + 7 + $Rel
+                if ($Target -eq $StringRVA) {
+                    $PatchOffset = [ScannerCore]::FindStart($bytes, $i, $false); break
+                }
+            }
+        }
+    }
+    else {
+        $Results = [ScannerCore]::FindXref_ARM64($bytes, [uint64]$StringRVA, [uint64]$CodeSection.VA, [uint32]$CodeSection.RawPtr, [uint32]$CodeSection.RawSize)
+        if ($Results.Count -gt 0) {
+            $PatchOffset = [ScannerCore]::FindStart($bytes, $Results[0], $true)
+        }
+    }
+
+    if ($PatchOffset -eq 0) { 
+        Write-Warning "Function not found in Spotify.dll"
+        Stop-Script
+    }
+
+    $BytesToWrite = if ($IsArm64) { $Patch_ARM64 } else { $Patch_x64 }
+
+    $CurrentBytes = @(); for ($i = 0; $i -lt $BytesToWrite.Length; $i++) { $CurrentBytes += $bytes[$PatchOffset + $i] }
+    $FoundHex = ($CurrentBytes | ForEach-Object { $_.ToString("X2") }) -join " "
+    Write-Verbose "Found (Offset: 0x$($PatchOffset.ToString("X"))): $FoundHex"
+
+    if ($CurrentBytes[0] -eq $BytesToWrite[0] -and $CurrentBytes[$BytesToWrite.Length - 1] -eq $BytesToWrite[$BytesToWrite.Length - 1]) {
+        Write-Warning "File Spotify.dll already patched"
+        return
+    }
+
+    Write-Verbose "Applying patch..."
+    for ($i = 0; $i -lt $BytesToWrite.Length; $i++) { $bytes[$PatchOffset + $i] = $BytesToWrite[$i] }
+
+    try {
+        [System.IO.File]::WriteAllBytes($FilePath, $bytes)
+        Write-Verbose "Success"
+    }
+    catch { 
+        Write-Warning "Write error in Spotify.dll $($_.Exception.Message)" 
+        Stop-Script
     }
 }
 
@@ -1800,9 +1907,7 @@ function Remove-Signature-FromFiles([string[]]$fileNames) {
         $fullPath = Join-Path -Path $spotifyDirectory -ChildPath $fileName
         if (-not (Test-Path $fullPath)) {
             Write-Error "File not found: $fullPath"
-            Write-Host ($lang).StopScript
-            Pause
-            Exit
+            Stop-Script
         }
         try {
             Write-Verbose "Processing file: $fileName"
@@ -1812,9 +1917,7 @@ function Remove-Signature-FromFiles([string[]]$fileNames) {
         }
         catch {
             Write-Error "Failed to process file '$fileName': $_"
-            Write-Host ($lang).StopScript
-            Pause
-            Exit
+            Stop-Script
         }
     }
 }
@@ -1891,16 +1994,13 @@ $test_js = Test-Path -Path $xpui_js_patch
 if ($test_spa -and $test_js) {
     Write-Host ($lang).Error -ForegroundColor Red
     Write-Host ($lang).FileLocBroken
-    Write-Host ($lang).StopScript
-    pause
-    Exit
+    Stop-Script
 }
+
 
 if (!($test_js) -and !($test_spa)) { 
     Write-Host "xpui.spa not found, reinstall Spotify"
-    Write-Host ($lang).StopScript
-    Pause
-    Exit
+    Stop-Script
 }
 
 if ($test_spa) {
@@ -1930,12 +2030,10 @@ if ($test_spa) {
             if ($v8_snapshot) {
                 $modules = Extract-WebpackModules -InputFile $v8_snapshot
 
-                $firstLine = ($modules -split "`r?`n" | Select-Object -First 1)
-
                 $archive_spa.Dispose()
                 $archive_spa = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, [System.IO.Compression.ZipArchiveMode]::Update)
 
-                Update-ZipEntry -archive $archive_spa -entryName 'xpui-snapshot.js' -prepend $firstLine -newEntryName 'xpui.js' -Verbose:$VerbosePreference
+                Update-ZipEntry -archive $archive_spa -entryName 'xpui-snapshot.js' -prepend $modules -newEntryName 'xpui.js' -Verbose:$VerbosePreference
             
                 Update-ZipEntry -archive $archive_spa -entryName 'xpui-snapshot.css' -newEntryName 'xpui.css' -Verbose:$VerbosePreference
             
@@ -1958,9 +2056,7 @@ if ($test_spa) {
         }
         if (-not $v8_snapshot -and $null -eq $xpuiJsEntry) {
             Write-Warning "v8_context_snapshot file not found, cannot create xpui.js"
-            Write-Host ($lang).StopScript
-            Pause
-            Exit
+            Stop-Script
         }
     }
 
@@ -1985,7 +2081,7 @@ if ($test_spa) {
         $spotify_binary = $spotifyExecutable
     }
 
-    If ($patched_by_aimods -match 'patched by aimods') {
+    If ($patched_by_aimods -match 'patched by Aimods') {
         $zip.Dispose()    
 
         if ($test_bak_spa) {
@@ -2067,11 +2163,23 @@ if ($test_spa) {
         
         if ($section -ne $null) {
 
-            injection -p $xpui_spa_patch -f "aimods-helper" -n "sectionBlock.js" -c $section
+            $calltype = switch ($true) {
+                ($podcast_off -and $adsections_off -and $canvashome_off) { "'all'"; break }
+                ($podcast_off -and $adsections_off) { "['podcast', 'section']"; break }
+                ($podcast_off -and $canvashome_off) { "['podcast', 'canvas']"; break }
+                ($adsections_off -and $canvashome_off) { "['section', 'canvas']"; break }
+                $podcast_off { "'podcast'"; break }
+                $adsections_off { "'section'"; break }
+                $canvashome_off { "'canvas'"; break }
+                default { $null } 
+            }
+
+            if (!($calltype -eq "'canvas'" -and [version]$offline -le [version]"1.2.44.405")) {
+                $section = $section -replace "sectionBlock\(data, ''\)", "sectionBlock(data, $calltype)"
+                injection -p $xpui_spa_patch -f "spotx-helper" -n "sectionBlock.js" -c $section
+            }
         }
-        else {
-            $podcast_off, $adsections_off = $false
-        }
+
     }
 	
     # goofy History
@@ -2152,7 +2260,7 @@ if ($test_spa) {
         }
     }
     # block subfeeds
-    if ($global:type -match "all" -or $global:type -match "podcast") {
+    if ($calltype -match "all" -or $calltype -match "podcast") {
         $css += $webjson.others.block_subfeeds.add
     }
     # scrollbar indent fixes
@@ -2225,7 +2333,10 @@ $regex1 = $old -notmatch $webjson.others.binary.block_update.add
 $regex2 = $old -notmatch $webjson.others.binary.block_slots.add
 $regex3 = $old -notmatch $webjson.others.binary.block_slots_2.add
 $regex4 = $old -notmatch $webjson.others.binary.block_slots_3.add
-$regex5 = $old -notmatch $webjson.others.binary.block_gabo.add
+$regex5 = $old -notmatch $(
+    if ([version]$offline -gt [version]'1.2.73.474') { $webjson.others.binary.block_gabo2.add }
+    else { $webjson.others.binary.block_gabo.add }
+)
 
 if ($regex1 -and $regex2 -and $regex3 -and $regex4 -and $regex5) {
 
