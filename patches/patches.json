@@ -408,7 +408,7 @@
                 "native_description": "Enables impression logging for PiP",
                 "version": {
                     "fr": "1.2.32",
-                    "to": ""
+                    "to": "1.2.78"
                 }
             },
             "SwitchingBetweenHomeAdsAndHpto": {
@@ -1534,7 +1534,7 @@
                 "native_description": "Enable new overlay scrollbars",
                 "version": {
                     "fr": "1.2.58",
-                    "to": ""
+                    "to": "1.2.81"
                 }
             },
             "FullscreenLibrary": {
@@ -1678,7 +1678,7 @@
                 "native_description": "Enable users to react and reply to comments.",
                 "version": {
                     "fr": "1.2.74",
-                    "to": ""
+                    "to": "1.2.81"
                 }
             },
             "ExcludeTrackFromTasteProfile": {
@@ -1752,11 +1752,63 @@
                     "to": ""
                 }
             },
+            "ForceVolumeInExclusiveMode": {
+                "name": "enableForceVolumeInExclusiveMode",
+                "native_description": "Enables the force volume toggle when exclusive mode is enabled",
+                "version": {
+                    "fr": "1.2.82",
+                    "to": ""
+                }
+            },
             "ListPrivateByDefaultSetting": {
                 "name": "enableListPrivateByDefaultSetting",
                 "native_description": "Enable List Private By Default setting in Desktop Social Settings",
                 "version": {
                     "fr": "1.2.78",
+                    "to": ""
+                }
+            },
+            "Wrapped2025ListenCount": {
+                "name": "enableWrapped2025ListenCount",
+                "native_description": "Enable displaying listen counts for tracks in Wrapped 2025 Your Top Songs playlists",
+                "version": {
+                    "fr": "1.2.80",
+                    "to": ""
+                }
+            },
+            "MagpiePrompting": {
+                "name": "enableMagpiePrompting",
+                "version": {
+                    "fr": "1.2.77",
+                    "to": ""
+                }
+            },
+            "MagpieScheduling": {
+                "name": "enableMagpieScheduling",
+                "version": {
+                    "fr": "1.2.77",
+                    "to": ""
+                }
+            },
+            "MagpieCuration": {
+                "name": "enableMagpieCuration",
+                "version": {
+                    "fr": "1.2.81",
+                    "to": ""
+                }
+            },
+            "Magpie": {
+                "name": "enableMagpie",
+                "version": {
+                    "fr": "1.2.77",
+                    "to": ""
+                }
+            },
+            "PlaylistExtenderBpmKey": {
+                "name": "enablePlaylistExtenderBpmKey",
+                "native_description": "Enable BPM and key columns in playlist recommendations",
+                "version": {
+                    "fr": "1.2.82",
                     "to": ""
                 }
             }
@@ -1889,7 +1941,7 @@
                 "value": "your_library",
                 "version": {
                     "fr": "1.2.57",
-                    "to": ""
+                    "to": "1.2.81"
                 }
             },
             "AdsDismissTimeInterval": {
@@ -2251,11 +2303,11 @@
         },
         "collaboration": {
             "version": {
-                "fr": "1.1.73",
-                "to": ""
+                "fr": "1.1.74",
+                "to": "1.2.81"
             },
-            "match": "(permissionLevel:(?:\"CONTRIBUTOR\"|[\\w$]+)(?!\\s*=).+?return)",
-            "replace": "$1 null;"
+            "match": "[\\w$]+\\??\\.canAdministratePermissions(\\W.*?\"permissions\\.invite-collaborators\")",
+            "replace": "false$1"
         },
         "byaimods": {
             "add": "// Patched by Aimods"
@@ -2543,7 +2595,7 @@
                 "fr": "1.2.55",
                 "to": ""
             },
-            "match": "\/(?:leavebehinds\/mock|leavebehinds|mock)\/",
+            "match": "\/(?:leavebehinds\/mock|leavebehinds|mock|sponsoredplaylist)\/",
             "replace": "/localhost/"
         },
         "upgradeButton": {
@@ -2561,6 +2613,14 @@
             },
             "match": "=>\\{((?:(?!=>\\{).)*?(?=\"loggedin_upgrade_menu))",
             "replace": "=>{ return null; $1"
+        },
+        "hideEmptyYourEpisodes": {
+            "version": {
+                "fr": "1.2.78",
+                "to": ""
+            },
+            "match": "(includeYourEpisodes\\?\\{inclusionMode:[^,}]+\\.)INCLUDE_ALWAYS",
+            "replace": "$1INCLUDE_IF_NOT_EMPTY"
         }
     }
 }

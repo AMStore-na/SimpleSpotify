@@ -4,6 +4,8 @@ param
     [Parameter(HelpMessage = "Change recommended version of Spotify.")]
     [Alias("v")]
     [string]$version,
+    [Parameter(HelpMessage = 'Custom path to Spotify installation directory. Default is %APPDATA%\Spotify.')]
+    [string]$SpotifyPath,
 
     [Parameter(HelpMessage = "Use github.io mirror instead of raw.githubusercontent.")]
     [Alias("m")]
@@ -294,6 +296,9 @@ function Format-LanguageCode {
 
 $spotifyDirectory = Join-Path $env:APPDATA 'Spotify'
 $spotifyDirectory2 = Join-Path $env:LOCALAPPDATA 'Spotify'
+if ($SpotifyPath) {
+    $spotifyDirectory = $SpotifyPath
+}
 $spotifyExecutable = Join-Path $spotifyDirectory 'Spotify.exe'
 $spotifyDll = Join-Path $spotifyDirectory 'Spotify.dll' 
 $chrome_elf = Join-Path $spotifyDirectory 'chrome_elf.dll'
@@ -411,7 +416,7 @@ if (!($version -and $version -match $match_v)) {
     }
     else {  
         # latest tested version for Win 10-12 
-        $onlineFull = "1.2.78.418.gaeeb5ebd-1067"
+        $onlineFull = "1.2.82.428.g0ac8be2b-1220"
     }
 }
 else {
@@ -516,7 +521,7 @@ function Mod-F {
     return $result
 }
 
-function downloadSp() {
+function downloadSp([string]$DownloadFolder) {
 
     $webClient = New-Object -TypeName System.Net.WebClient
 
@@ -528,7 +533,7 @@ function downloadSp() {
     $arch = if ($short -le $max_x86) { "win32-x86" } else { "win32-x86_64" }
 
     $web_Url = "https://download.scdn.co/upgrade/client/$arch/spotify_installer-$onlineFull.exe"
-    $local_Url = "$PWD\SpotifySetup.exe" 
+    $local_Url = Join-Path $DownloadFolder 'SpotifySetup.exe'
     $web_name_file = "SpotifySetup.exe"
 
     try { if (curl.exe -V) { $curl_check = $true } }
@@ -536,7 +541,7 @@ function downloadSp() {
     
     try { 
         if ($curl_check) {
-            $stcode = curl.exe -Is -w "%{http_code} \n" -o /dev/null -k $web_Url --retry 2 --ssl-no-revoke
+            $stcode = curl.exe -Is -w "%{http_code} \n" -o NUL -k $web_Url --retry 2 --ssl-no-revoke
             if ($stcode.trim() -ne "200") {
                 Write-Host "Curl error code: $stcode"; throw
             }
@@ -560,11 +565,12 @@ function downloadSp() {
         $Error[0].Exception
         Write-Host
         Write-Host ($lang).Download2`n
+
         Start-Sleep -Milliseconds 5000 
         try { 
 
             if ($curl_check) {
-                $stcode = curl.exe -Is -w "%{http_code} \n" -o /dev/null -k $web_Url --retry 2 --ssl-no-revoke
+                $stcode = curl.exe -Is -w "%{http_code} \n" -o NUL -k $web_Url --retry 2 --ssl-no-revoke
                 if ($stcode.trim() -ne "200") {
                     Write-Host "Curl error code: $stcode"; throw
                 }
@@ -586,14 +592,26 @@ function downloadSp() {
             $Error[0].Exception
             Write-Host
             Write-Host ($lang).Download4`n
-            $tempDirectory = $PWD
-            Pop-Location
-            Start-Sleep -Milliseconds 200
-            Remove-Item -Recurse -LiteralPath $tempDirectory
+
+            if ($DownloadFolder -and (Test-Path $DownloadFolder)) {
+                Start-Sleep -Milliseconds 200
+                Remove-Item -Recurse -LiteralPath $DownloadFolder -ErrorAction SilentlyContinue
+            }
             Stop-Script
         }
     }
 } 
+
+function Remove-TempDirectory {
+    param(
+        [string]$Directory,
+        [int]$DelayMs = 200
+    )
+    if ($Directory -and (Test-Path $Directory)) {
+        Start-Sleep -Milliseconds $DelayMs
+        Remove-Item -Recurse -LiteralPath $Directory -ErrorAction SilentlyContinue -Force
+    }
+}
 
 function DesktopFolder {
 
@@ -724,6 +742,11 @@ if ($premium) {
 
 $spotifyInstalled = (Test-Path -LiteralPath $spotifyExecutable)
 
+if ($SpotifyPath -and -not $spotifyInstalled) {
+    Write-Warning "Spotify not found in custom path: $spotifyDirectory"
+    Stop-Script
+}
+
 if ($spotifyInstalled) {
     
     # Check version Spotify offline
@@ -844,17 +867,14 @@ if ($spotifyInstalled) {
             }
 
             if ($ch -eq 'n') {
-                $tempDirectory = $PWD
-                Pop-Location
-                Start-Sleep -Milliseconds 200
-                Remove-Item -Recurse -LiteralPath $tempDirectory 
+                Remove-TempDirectory -Directory $tempDirectory
                 Stop-Script
             }
         }
     }
 }
-# If there is no client or it is outdated, then install
-if (-not $spotifyInstalled -or $upgrade_client) {
+
+if (-not $SpotifyPath -and (-not $spotifyInstalled -or $upgrade_client)) {
 
     Write-Host ($lang).DownSpoti"" -NoNewline
     Write-Host  $online -ForegroundColor Green
@@ -869,14 +889,19 @@ if (-not $spotifyInstalled -or $upgrade_client) {
     Get-ChildItem $spotifyDirectory -Exclude 'Users', 'prefs' | Remove-Item -Recurse -Force 
     Start-Sleep -Milliseconds 200
 
+    $tempDirName = "AIMODS_Temp-$(Get-Date -UFormat '%Y-%m-%d_%H-%M-%S')"
+    $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) $tempDirName
+    if (-not (Test-Path -LiteralPath $tempDirectory)) { New-Item -ItemType Directory -Path $tempDirectory | Out-Null }
+
     # Client download
-    downloadSp
+    downloadSp -DownloadFolder $tempDirectory
     Write-Host
 
     Start-Sleep -Milliseconds 200
 
     # Client installation
-    Start-Process -FilePath explorer.exe -ArgumentList $PWD\SpotifySetup.exe
+    $setupExe = Join-Path $tempDirectory 'SpotifySetup.exe'
+    Start-Process -FilePath explorer.exe -ArgumentList $setupExe
     while (-not (get-process | Where-Object { $_.ProcessName -eq 'SpotifySetup' })) {}
     wait-process -name SpotifySetup
     Kill-Spotify
@@ -977,10 +1002,7 @@ $webjson = Get -Url (Get-Link -e "/patches/patches.json") -RetrySeconds 5
 if ($webjson -eq $null) { 
     Write-Host
     Write-Host "Failed to get patches.json" -ForegroundColor Red
-    $tempDirectory = $PWD
-    Pop-Location
-    Start-Sleep -Milliseconds 200
-    Remove-Item -Recurse -LiteralPath $tempDirectory 
+    Remove-TempDirectory -Directory $tempDirectory
     Stop-Script
 }
 
@@ -1178,7 +1200,7 @@ function Helper($paramname) {
                     } 
                 }
             }
-            if (!$premium) { Remove-Json -j $Enable -p 'RemoteDownloads' }
+  if (!$premium) { Remove-Json -j $Enable -p 'RemoteDownloads', 'Magpie', 'MagpiePrompting', 'MagpieScheduling', 'MagpieCuration' }
 
             # Disable unimportant exp
             if ($exp_spotify) {
@@ -1423,13 +1445,13 @@ function extract ($counts, $method, $name, $helper, $add, $patch) {
         "one" { 
             if ($method -eq "zip") {
                 Add-Type -Assembly 'System.IO.Compression.FileSystem'
-                $xpui_spa_patch = Join-Path (Join-Path $env:APPDATA 'Spotify\Apps') 'xpui.spa'
+                $xpui_spa_patch = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.spa'
                 $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update')   
                 $file = $zip.GetEntry($name)
                 $reader = New-Object System.IO.StreamReader($file.Open())
             }
             if ($method -eq "nonezip") {
-                $file = get-item $env:APPDATA\Spotify\Apps\xpui\$name
+                $file = Get-Item (Join-Path (Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui') $name)
                 $reader = New-Object -TypeName System.IO.StreamReader -ArgumentList $file
             }
             $xpui = $reader.ReadToEnd()
@@ -1445,7 +1467,7 @@ function extract ($counts, $method, $name, $helper, $add, $patch) {
         }
         "more" {  
             Add-Type -Assembly 'System.IO.Compression.FileSystem'
-            $xpui_spa_patch = Join-Path (Join-Path $env:APPDATA 'Spotify\Apps') 'xpui.spa'
+            $xpui_spa_patch = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.spa'
             $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update') 
             $zip.Entries | Where-Object { $_.FullName -like $name -and $_.FullName.Split('/') -notcontains 'aimods-helper' } | foreach { 
                 $reader = New-Object System.IO.StreamReader($_.Open())
@@ -1647,6 +1669,7 @@ function Extract-WebpackModules {
 }
 
 function Reset-Dll-Sign {
+    [CmdletBinding()]
     param (
         [string]$FilePath
     )
@@ -1721,8 +1744,19 @@ public class ScannerCore {
                 // ARM64 Prologue: STP X29, X30, [SP, -imm]! -> FD 7B .. A9
                 if ((currInst & 0xFF00FFFF) == 0xA9007BFD) { return i; }
             } else {
-                // x64 Prologue: Padding 0xCC
-                if (data[i] != 0xCC && data[i-1] == 0xCC) return i;
+                // x64: Look for at least 2 bytes of padding (CC or 90) followed by a valid function start
+                if (i >= 2) {
+                    if ((data[i-1] == 0xCC && data[i-2] == 0xCC) || (data[i-1] == 0x90 && data[i-2] == 0x90)) {
+                        if (data[i] != 0xCC && data[i] != 0x90) {
+                            // Check for common function start bytes:
+                            // 0x48 (REX.W), 0x40 (REX), 0x55 (push rbp), 0x53-0x57 (push reg)
+                            byte b = data[i];
+                            if (b == 0x48 || b == 0x40 || b == 0x55 || (b >= 0x53 && b <= 0x57)) {
+                                return i;
+                            }
+                        }
+                    }
+                }
             }
             if (startOffset - i > 20000) break; 
         }
@@ -1804,7 +1838,8 @@ public class ScannerCore {
                 $Rel = [BitConverter]::ToInt32($bytes, $i + 3)
                 $Target = (Get-RVA $i) + 7 + $Rel
                 if ($Target -eq $StringRVA) {
-                    $PatchOffset = [ScannerCore]::FindStart($bytes, $i, $false); break
+                    $PatchOffset = [ScannerCore]::FindStart($bytes, $i, $false)
+                    if ($PatchOffset -gt 0) { break }
                 }
             }
         }
@@ -1862,7 +1897,9 @@ function Get-PEArchitectureOffsets {
     return $result
 }
 
-function Remove-Sign([string]$filePath) {
+function Remove-Sign {
+    [CmdletBinding()]
+    param([string]$filePath)
     try {
         $bytes = [System.IO.File]::ReadAllBytes($filePath)
         $peHeaderOffset = [System.BitConverter]::ToUInt32($bytes, 0x3C)
@@ -1902,7 +1939,9 @@ function Remove-Sign([string]$filePath) {
     }
 }
 
-function Remove-Signature-FromFiles([string[]]$fileNames) {
+function Remove-Signature-FromFiles {
+    [CmdletBinding()]
+    param([string[]]$fileNames)
     foreach ($fileName in $fileNames) {
         $fullPath = Join-Path -Path $spotifyDirectory -ChildPath $fileName
         if (-not (Test-Path $fullPath)) {
@@ -1980,14 +2019,10 @@ function Update-ZipEntry {
 
 Write-Host ($lang).ModSpoti`n
 
-$tempDirectory = $PWD
-Pop-Location
+Remove-TempDirectory -Directory $tempDirectory 
 
-Start-Sleep -Milliseconds 200
-Remove-Item -Recurse -LiteralPath $tempDirectory 
-
-$xpui_spa_patch = Join-Path (Join-Path $env:APPDATA 'Spotify\Apps') 'xpui.spa'
-$xpui_js_patch = Join-Path (Join-Path (Join-Path $env:APPDATA 'Spotify\Apps') 'xpui') 'xpui.js'
+$xpui_spa_patch = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.spa'
+$xpui_js_patch = Join-Path (Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui') 'xpui.js'
 $test_spa = Test-Path -Path $xpui_spa_patch
 $test_js = Test-Path -Path $xpui_js_patch
 
@@ -2060,7 +2095,7 @@ if ($test_spa) {
         }
     }
 
-    $bak_spa = Join-Path (Join-Path $env:APPDATA 'Spotify\Apps') 'xpui.bak'
+    $bak_spa = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.bak'
     $test_bak_spa = Test-Path -Path $bak_spa
 
     # Make a backup copy of xpui.spa if it is original
@@ -2176,7 +2211,7 @@ if ($test_spa) {
 
             if (!($calltype -eq "'canvas'" -and [version]$offline -le [version]"1.2.44.405")) {
                 $section = $section -replace "sectionBlock\(data, ''\)", "sectionBlock(data, $calltype)"
-                injection -p $xpui_spa_patch -f "spotx-helper" -n "sectionBlock.js" -c $section
+                injection -p $xpui_spa_patch -f "aimods-helper" -n "sectionBlock.js" -c $section
             }
         }
 
@@ -2303,9 +2338,9 @@ if (!($no_shortcut)) {
     $desktop_folder = DesktopFolder
 
     If (!(Test-Path $desktop_folder\Spotify.lnk)) {
-        $source = Join-Path $env:APPDATA 'Spotify\Spotify.exe'
+        $source = $spotifyExecutable
         $target = "$desktop_folder\Spotify.lnk"
-        $WorkingDir = "$env:APPDATA\Spotify"
+        $WorkingDir = $spotifyDirectory
         $WshShell = New-Object -comObject WScript.Shell
         $Shortcut = $WshShell.CreateShortcut($target)
         $Shortcut.WorkingDirectory = $WorkingDir
@@ -2316,9 +2351,9 @@ if (!($no_shortcut)) {
 
 # Create shortcut in start menu
 If (!(Test-Path $start_menu)) {
-    $source = Join-Path $env:APPDATA 'Spotify\Spotify.exe'
+    $source = $spotifyExecutable
     $target = $start_menu
-    $WorkingDir = "$env:APPDATA\Spotify"
+    $WorkingDir = $spotifyDirectory
     $WshShell = New-Object -comObject WScript.Shell
     $Shortcut = $WshShell.CreateShortcut($target)
     $Shortcut.WorkingDirectory = $WorkingDir
@@ -2367,13 +2402,13 @@ extract -counts 'exe' -helper 'Binary'
 
 # fix login for old versions
 if ([version]$offline -ge [version]"1.1.87.612" -and [version]$offline -le [version]"1.2.5.1006") {
-    $login_spa = Join-Path (Join-Path $env:APPDATA 'Spotify\Apps') 'login.spa'
+    $login_spa = Join-Path (Join-Path $spotifyDirectory 'Apps') 'login.spa'
     Get -Url (Get-Link -e "/res/login.spa") -OutputPath $login_spa
 }
 
 # Disable Startup client
 if ($DisableStartup) {
-    $prefsPath = "$env:APPDATA\Spotify\prefs"
+    $prefsPath = Join-Path $spotifyDirectory 'prefs'
     $keyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
     $keyName = "Spotify"
 
