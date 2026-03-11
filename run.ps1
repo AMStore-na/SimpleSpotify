@@ -1,6 +1,6 @@
+[CmdletBinding()]
 param
 (
-    
     [Parameter(HelpMessage = "Change recommended version of Spotify.")]
     [Alias("v")]
     [string]$version,
@@ -416,7 +416,7 @@ if (!($version -and $version -match $match_v)) {
     }
     else {  
         # latest tested version for Win 10-12 
-        $onlineFull = "1.2.82.428.g0ac8be2b-1220"
+        $onlineFull = "1.2.84.477.gcfdf84e8-2359"
     }
 }
 else {
@@ -532,7 +532,7 @@ function downloadSp([string]$DownloadFolder) {
     $short = [Version]"$($versionParts[0]).$($versionParts[1]).$($versionParts[2])"
     $arch = if ($short -le $max_x86) { "win32-x86" } else { "win32-x86_64" }
 
-    $web_Url = "https://download.scdn.co/upgrade/client/$arch/spotify_installer-$onlineFull.exe"
+     $web_Url = "https://upgrade.scdn.co/upgrade/client/$arch/spotify_installer-$onlineFull.exe"
     $local_Url = Join-Path $DownloadFolder 'SpotifySetup.exe'
     $web_name_file = "SpotifySetup.exe"
 
@@ -732,10 +732,6 @@ if (Test-Path -Path $hostsFilePath) {
     }
 }
 
-# Unique directory name based on time
-Push-Location -LiteralPath ([System.IO.Path]::GetTempPath())
-New-Item -Type Directory -Name "aimods_Temp-$(Get-Date -UFormat '%Y-%m-%d_%H-%M-%S')" | Convert-Path | Set-Location
-
 if ($premium) {
     Write-Host ($lang).Prem`n
 }
@@ -771,7 +767,7 @@ if ($spotifyInstalled) {
     }
   
     # Unsupported version Spotify
-    if ($testversion) {
+   if ($testversion -and -not $SpotifyPath) {
 
         # Submit unsupported version of Spotify to google form for further processing
 
@@ -2106,7 +2102,7 @@ if ($test_spa) {
     $reader.Close()
 
 
-    if ($offline -ge [version]'1.2.70.404') {
+    if ($offline -ge [version]'1.2.70.253') {
         
         $spotify_binary_bak = $dll_bak 
         $spotify_binary = $spotifyDll
