@@ -1,11 +1,31 @@
 [CmdletBinding()]
 param
 (
-    [Parameter(HelpMessage = "Change recommended version of Spotify.")]
+    [Parameter(HelpMessage = 'Latest recommended Spotify version for Windows 10+.')]
+    [string]$latest_full = "1.2.88.485.g1012a6e0",
+
+    [Parameter(HelpMessage = 'Latest supported Spotify version for Windows 7-8.1')]
+    [string]$last_win7_full = "1.2.5.1006.g22820f93",
+
+    [Parameter(HelpMessage = 'Latest supported Spotify version for x86')]
+    [string]$last_x86_full = "1.2.53.440.g7b2f582a",
+
+
+    [Parameter(HelpMessage = 'Force a specific download method. Default is automatic selection.')]
+    [Alias('dm')]
+    [ValidateSet('curl', 'webclient')]
+    [string]$download_method,
+
+    [Parameter(HelpMessage = "Change recommended Spotify version. Example: 1.2.85.519.g549a528b.")]
     [Alias("v")]
     [string]$version,
+
     [Parameter(HelpMessage = 'Custom path to Spotify installation directory. Default is %APPDATA%\Spotify.')]
     [string]$SpotifyPath,
+
+    [Parameter(HelpMessage = 'Custom local path to patches.json')]
+    [Alias('cp')]
+    [string]$CustomPatchesPath,
 
     [Parameter(HelpMessage = "Use github.io mirror instead of raw.githubusercontent.")]
     [Alias("m")]
@@ -96,6 +116,10 @@ param
     [Parameter(HelpMessage = 'Do not create desktop shortcut.')]
     [switch]$no_shortcut,
 
+    [Parameter(HelpMessage = 'Disable sending new versions')]
+    [switch]$sendversion_off,
+    
+
     [Parameter(HelpMessage = 'Static color for lyrics.')]
     [ArgumentCompleter({ param($cmd, $param, $wordToComplete)
             [array] $validValues = @('blue', 'blueberry', 'discord', 'drot', 'default', 'forest', 'fresh', 'github', 'lavender', 'orange', 'postlight', 'pumpkin', 'purple', 'radium', 'relish', 'red', 'sandbar', 'spotify', 'spotify#2', 'strawberry', 'turquoise', 'yellow', 'zing', 'pinkle', 'krux', 'royal', 'oceano')
@@ -114,7 +138,11 @@ param
     
     [Parameter(HelpMessage = 'Select the desired language to use for installation. Default is the detected system language.')]
     [Alias('l')]
-    [string]$language
+    [string]$language,
+
+    # Deprecated parameters
+    [Parameter(HelpMessage = 'Deprecated, old lyrics are enabled by default')]
+    [switch]$old_lyrics
 )
 
 # Ignore errors from `Stop-Process`
@@ -300,6 +328,7 @@ if ($SpotifyPath) {
     $spotifyDirectory = $SpotifyPath
 }
 $spotifyExecutable = Join-Path $spotifyDirectory 'Spotify.exe'
+$spotifyUninstaller = Join-Path $spotifyDirectory 'uninstall.exe'
 $spotifyDll = Join-Path $spotifyDirectory 'Spotify.dll' 
 $chrome_elf = Join-Path $spotifyDirectory 'chrome_elf.dll'
 $exe_bak = Join-Path $spotifyDirectory 'Spotify.bak'
@@ -408,30 +437,45 @@ if ($version) {
 $old_os = $win7 -or $win8 -or $win8_1
 
 # Recommended version for Win 7-8.1 
-$last_win7_full = "1.2.5.1006.g22820f93-1078"
+$last_win7 = Get-SpotifyVersionNumber -SpotifyVersion $last_win7_full
 
-if (!($version -and $version -match $match_v)) {
+$last_x86 = Get-SpotifyVersionNumber -SpotifyVersion $last_x86_full
+
+if (-not $versionIsSupported) {
     if ($old_os) { 
         $onlineFull = $last_win7_full
     }
+    elseif ($systemArchitecture -eq 'x86') {
+        $onlineFull = $last_x86_full
+    }
     else {  
         # latest tested version for Win 10-12 
-        $onlineFull = "1.2.84.477.gcfdf84e8-2359"
+        $onlineFull = $latest_full
     }
 }
 else {
-    if ($old_os) {
-        $last_win7 = "1.2.5.1006"
-        if ([version]($onlineFull -split ".g")[0] -gt [version]$last_win7) { 
+    $requestedOnlineVersion = Get-SpotifyVersionNumber -SpotifyVersion $onlineFull
 
-            Write-Warning ("Version {0} is only supported on Windows 10 and above" -f ($onlineFull -split ".g")[0])   
+    if ($old_os) {
+        if ($requestedOnlineVersion -gt $last_win7) { 
+
+            Write-Warning ("Version {0} is only supported on Windows 10 and above" -f $requestedOnlineVersion)
             Write-Warning ("The recommended version has been automatically changed to {0}, the latest supported version for Windows 7-8.1" -f $last_win7)
             Write-Host
             $onlineFull = $last_win7_full
+            $requestedOnlineVersion = $last_win7
         }
     }
+
+    if ($systemArchitecture -eq 'x86' -and $requestedOnlineVersion -gt $last_x86) {
+        Write-Warning ("Version {0} is not supported on 32-bit (x86) Windows systems" -f $requestedOnlineVersion)
+        Write-Warning ("The recommended version has been automatically changed to {0}, the latest supported version for x86 systems" -f $last_x86)
+        Write-Host
+        $onlineFull = $last_x86_full
+        $requestedOnlineVersion = $last_x86
+    }
 }
-$online = ($onlineFull -split ".g")[0]
+$online = (Get-SpotifyVersionNumber -SpotifyVersion $onlineFull).ToString()
 
 
 function Get {
@@ -471,6 +515,37 @@ function Get {
     return $null
 }
 
+function Get-PatchesJson {
+    param (
+        [string]$LocalPath
+    )
+
+    if ($LocalPath) {
+        try {
+            $resolvedPath = Resolve-Path -LiteralPath $LocalPath -ErrorAction Stop | Select-Object -ExpandProperty Path
+
+            if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
+                throw "File not found: $resolvedPath"
+            }
+
+            Write-Host ("Using a local file for patches: {0}" -f $resolvedPath)
+            Write-Host
+
+            $jsonContent = [System.IO.File]::ReadAllText($resolvedPath, [System.Text.Encoding]::UTF8)
+            return $jsonContent | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            Write-Host
+            Write-Host "Failed to load local patches.json" -ForegroundColor Red
+            Write-Host $_.Exception.Message -ForegroundColor Red
+            Write-Host
+            return $null
+        }
+    }
+
+    return Get -Url (Get-Link -e "/patches/patches.json") -RetrySeconds 5
+}
+
 
 function incorrectValue {
 
@@ -505,6 +580,74 @@ function Unlock-Folder {
         }
     }
 }
+function Invoke-SpotifyUninstall {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstalledVersion
+    )
+
+    $installedVersionObject = [version]$InstalledVersion
+
+    if ($installedVersionObject -ge [version]'1.2.84.476') {
+        if (-not (Test-Path -LiteralPath $spotifyUninstaller)) {
+            Write-Host "ERROR: " -ForegroundColor Red -NoNewline
+            Write-Host ("Spotify uninstall.exe was not found for version {0}. Aborting reinstall" -f $InstalledVersion) -ForegroundColor White
+            Stop-Script
+        }
+
+        try {
+            $launcher = Start-Process -FilePath $spotifyUninstaller `
+                -ArgumentList '/silent' `
+                -PassThru `
+                -WindowStyle Hidden `
+                -ErrorAction Stop
+
+            $launcher.WaitForExit()
+
+            $pollIntervalMs = 200
+            $pollMaxMs = 10000
+            $elapsedMs = 0
+
+            while ($elapsedMs -lt $pollMaxMs) {
+                $uninstallProcess = Get-Process -Name SpotifyUninstall -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($uninstallProcess) {
+                    Wait-Process -Name SpotifyUninstall -ErrorAction SilentlyContinue
+                    break
+                }
+
+                if (-not (Test-Path -LiteralPath $spotifyExecutable) -or -not (Test-Path -LiteralPath $spotifyDirectory)) {
+                    break
+                }
+
+                Start-Sleep -Milliseconds $pollIntervalMs
+                $elapsedMs += $pollIntervalMs
+            }
+        }
+        catch {
+            Write-Host "ERROR: " -ForegroundColor Red -NoNewline
+            Write-Host ("Failed to launch Spotify uninstaller for version {0}. {1}" -f $InstalledVersion, $_.Exception.Message) -ForegroundColor White
+            Stop-Script
+        }
+    }
+    else {
+        cmd /c $spotifyExecutable /UNINSTALL /SILENT
+        Wait-Process -Name SpotifyUninstall
+    }
+
+    Start-Sleep -Milliseconds 200
+
+    if (Test-Path -LiteralPath $spotifyDirectory) { Remove-Item -Recurse -Force -LiteralPath $spotifyDirectory -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $spotifyDirectory2) { Remove-Item -Recurse -Force -LiteralPath $spotifyDirectory2 -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $spotifyUninstall) { Remove-Item -Recurse -Force -LiteralPath $spotifyUninstall -ErrorAction SilentlyContinue }
+
+    $spotifyRemoved = (-not (Test-Path -LiteralPath $spotifyExecutable)) -or (-not (Test-Path -LiteralPath $spotifyDirectory))
+    if (-not $spotifyRemoved) {
+        Write-Host "ERROR: " -ForegroundColor Red -NoNewline
+        Write-Host ("Spotify uninstall failed for version {0}. Spotify is still installed" -f $InstalledVersion) -ForegroundColor White
+        Stop-Script
+    }
+}
+
 function Mod-F {
     param(
         [string] $template,
@@ -521,86 +664,614 @@ function Mod-F {
     return $result
 }
 
+function Test-CurlAvailability {
+    try {
+        if (curl.exe -V) {
+            return $true
+        }
+    }
+    catch { }
+
+    return $false
+}
+
+function Resolve-SpotifyDownloadMethod {
+    param(
+        [string]$ForcedMethod
+    )
+
+    if ($ForcedMethod) {
+        switch ($ForcedMethod) {
+            'curl' {
+                if (Test-CurlAvailability) {
+                    return 'curl'
+                }
+
+                throw "Forced download method 'curl' is not available on this system"
+            }
+            'webclient' {
+                return 'webclient'
+            }
+        }
+    }
+
+    if (Test-CurlAvailability) {
+        return 'curl'
+    }
+
+    return 'webclient'
+}
+
+function Format-DownloadSizeMb {
+    param(
+        [long]$Bytes
+    )
+
+    return ('{0:N2} MB' -f ($Bytes / 1MB))
+}
+
+function Convert-CommandOutputToString {
+    param(
+        [object[]]$Output
+    )
+
+    if ($null -eq $Output) {
+        return ''
+    }
+
+    $lines = foreach ($item in @($Output)) {
+        if ($null -eq $item) {
+            continue
+        }
+
+        if ($item -is [System.Management.Automation.ErrorRecord]) {
+            $item.Exception.Message.TrimEnd()
+            continue
+        }
+
+        $item.ToString().TrimEnd()
+    }
+
+    return (@($lines) -join [Environment]::NewLine).Trim()
+}
+
+function Get-CurlHttpStatus {
+    param(
+        [string]$Output
+    )
+
+    $match = [regex]::Match([string]$Output, 'HTTP_STATUS:(\d{3})')
+    if ($match.Success) {
+        return $match.Groups[1].Value
+    }
+
+    return ''
+}
+
+function Get-CurlDiagnosticDetails {
+    param(
+        [string]$Output
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Output)) {
+        return ''
+    }
+
+    $cleanLines = foreach ($line in ($Output -split '\r?\n')) {
+        $currentLine = [string]$line
+
+        if ([string]::IsNullOrWhiteSpace($currentLine)) {
+            continue
+        }
+
+        if ($currentLine -match '^\s*HTTP_STATUS:\d{3}\s*$') {
+            continue
+        }
+
+        if ($currentLine -match '^\s*[#O=\-]+\s*$') {
+            continue
+        }
+
+        $curlMessageIndex = $currentLine.IndexOf('curl:')
+        if ($curlMessageIndex -gt 0) {
+            $currentLine = $currentLine.Substring($curlMessageIndex)
+        }
+
+        $currentLine = $currentLine.Trim()
+
+        if ($currentLine) {
+            $currentLine
+        }
+    }
+
+    return (@($cleanLines) -join [Environment]::NewLine).Trim()
+}
+
+function Format-CurlFailureMessage {
+    param(
+        [string]$Url,
+        [string]$Stage,
+        [int]$ExitCode,
+        [string]$HttpStatus,
+        [string]$Details,
+        [string]$ResponseText
+    )
+
+    $lines = @(
+        "curl $Stage failed",
+        "URL: $Url"
+    )
+
+    if ($ExitCode -ne 0) {
+        $lines += "Exit code: $ExitCode"
+    }
+
+    if ($HttpStatus) {
+        $lines += "HTTP status: $HttpStatus"
+    }
+
+    if ($Details) {
+        $lines += "Details: $Details"
+    }
+
+    if ($ResponseText) {
+        $lines += "Server response: $ResponseText"
+    }
+
+    return ($lines -join [Environment]::NewLine)
+}
+
+function New-DownloadFailureException {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        [string]$DownloadMethod,
+        [string]$FailureKind,
+        [string]$HttpStatus,
+        [int]$ExitCode = 0,
+        [System.Exception]$InnerException
+    )
+
+    if ($InnerException) {
+        $exception = New-Object System.Exception($Message, $InnerException)
+    }
+    else {
+        $exception = New-Object System.Exception($Message)
+    }
+
+    if ($DownloadMethod) {
+        $exception.Data['DownloadMethod'] = $DownloadMethod
+    }
+    if ($FailureKind) {
+        $exception.Data['FailureKind'] = $FailureKind
+    }
+    if ($HttpStatus) {
+        $exception.Data['HttpStatus'] = $HttpStatus
+    }
+    if ($ExitCode -ne 0) {
+        $exception.Data['ExitCode'] = $ExitCode
+    }
+
+    return $exception
+}
+
+function Write-DownloadFailureDetails {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Method,
+        [System.Exception]$Exception,
+        [string]$Title
+    )
+
+    if ($Title) {
+        Write-Host $Title -ForegroundColor Red
+    }
+
+    Write-Host "Download method: $Method" -ForegroundColor Yellow
+    if ($Exception) {
+        Write-Host $Exception.Message -ForegroundColor Yellow
+    }
+    Write-Host
+}
+
+function Invoke-DownloadMethodWithRetries {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath,
+        [Parameter(Mandatory = $true)]
+        [System.Net.WebClient]$WebClient,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('curl', 'webclient')]
+        [string]$DownloadMethod,
+        [Parameter(Mandatory = $true)]
+        [string]$FileName
+    )
+
+    $lastError = $null
+
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        try {
+            if ($attempt -gt 1) {
+                Write-Host ("Download method: {0} (attempt {1}/2)" -f $DownloadMethod, $attempt) -ForegroundColor Yellow
+            }
+
+            Invoke-SpotifyDownloadAttempt `
+                -Url $Url `
+                -DestinationPath $DestinationPath `
+                -WebClient $WebClient `
+                -DownloadMethod $DownloadMethod
+
+            return [PSCustomObject]@{
+                Success = $true
+                Error   = $null
+                Method  = $DownloadMethod
+            }
+        }
+        catch {
+            $lastError = $_.Exception
+            Write-Host
+
+            if ($attempt -eq 1) {
+                Write-Host ($lang).Download $FileName -ForegroundColor RED
+                Write-DownloadFailureDetails -Method $DownloadMethod -Exception $lastError
+                Write-Host ($lang).Download2`n
+                Start-Sleep -Milliseconds 5000
+            }
+        }
+    }
+
+    return [PSCustomObject]@{
+        Success = $false
+        Error   = $lastError
+        Method  = $DownloadMethod
+    }
+}
+
+function Invoke-WebClientDownloadWithProgress {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Net.WebClient]$WebClient,
+        [Parameter(Mandatory = $true)]
+        [string]$Url,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath
+    )
+
+    $fileName = Split-Path -Path $DestinationPath -Leaf
+    $previousProgressPreference = $ProgressPreference
+    $responseStream = $null
+    $fileStream = $null
+    $stopwatch = $null
+
+    try {
+        $ProgressPreference = 'Continue'
+        $responseStream = $WebClient.OpenRead($Url)
+
+        if ($null -eq $responseStream) {
+            throw "Failed to open response stream for $Url"
+        }
+
+        $totalBytes = 0L
+        $contentLength = $WebClient.ResponseHeaders['Content-Length']
+        if ($contentLength) {
+            $null = [long]::TryParse($contentLength, [ref]$totalBytes)
+        }
+
+        $fileStream = [System.IO.File]::Open($DestinationPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+
+        $buffer = New-Object byte[] 262144
+        $bytesReceived = 0L
+        $progressUpdateIntervalMs = 200
+        $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $lastProgressUpdateMs = - $progressUpdateIntervalMs
+
+        while (($bytesRead = $responseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $fileStream.Write($buffer, 0, $bytesRead)
+            $bytesReceived += $bytesRead
+
+            if (($stopwatch.ElapsedMilliseconds - $lastProgressUpdateMs) -ge $progressUpdateIntervalMs) {
+                if ($totalBytes -gt 0) {
+                    $percentComplete = [Math]::Min([int][Math]::Floor(($bytesReceived / $totalBytes) * 100), 100)
+                    $status = "{0} / {1} ({2}%)" -f (Format-DownloadSizeMb -Bytes $bytesReceived), (Format-DownloadSizeMb -Bytes $totalBytes), $percentComplete
+                    Write-Progress -Activity "Downloading $fileName" -Status $status -PercentComplete $percentComplete
+                }
+                else {
+                    $status = "{0} downloaded" -f (Format-DownloadSizeMb -Bytes $bytesReceived)
+                    Write-Progress -Activity "Downloading $fileName" -Status $status -PercentComplete 0
+                }
+
+                $lastProgressUpdateMs = $stopwatch.ElapsedMilliseconds
+            }
+        }
+
+        if ($totalBytes -gt 0) {
+            $completedStatus = "{0} / {1} (100%)" -f (Format-DownloadSizeMb -Bytes $bytesReceived), (Format-DownloadSizeMb -Bytes $totalBytes)
+            Write-Progress -Activity "Downloading $fileName" -Status $completedStatus -PercentComplete 100
+        }
+
+        Write-Progress -Activity "Downloading $fileName" -Completed
+    }
+    finally {
+        if ($null -ne $stopwatch) {
+            $stopwatch.Stop()
+        }
+        if ($null -ne $fileStream) {
+            $fileStream.Dispose()
+        }
+        if ($null -ne $responseStream) {
+            $responseStream.Dispose()
+        }
+
+        Write-Progress -Activity "Downloading $fileName" -Completed
+        $ProgressPreference = $previousProgressPreference
+    }
+}
+
+function Invoke-SpotifyDownloadAttempt {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath,
+        [Parameter(Mandatory = $true)]
+        [System.Net.WebClient]$WebClient,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('curl', 'webclient')]
+        [string]$DownloadMethod
+    )
+
+    switch ($DownloadMethod) {
+        'curl' {
+            if (Test-Path -LiteralPath $DestinationPath) {
+                Remove-Item -LiteralPath $DestinationPath -Force -ErrorAction SilentlyContinue
+            }
+
+            if ($null -eq $script:curlSupportsFailWithBody) {
+                try {
+                    $helpOutput = curl.exe --help all 2>$null
+                    $script:curlSupportsFailWithBody = [bool]($helpOutput -match '--fail-with-body')
+                }
+                catch {
+                    $script:curlSupportsFailWithBody = $false
+                }
+            }
+
+            $curlFailOption = if ($script:curlSupportsFailWithBody) { '--fail-with-body' } else { '--fail' }
+            $curlOutput = & curl.exe `
+                -q `
+                -L `
+                -k `
+                $curlFailOption `
+                --connect-timeout 15 `
+                --ssl-no-revoke `
+                --progress-bar `
+                -o $DestinationPath `
+                -w "`nHTTP_STATUS:%{http_code}`n" `
+                $Url
+            $curlExitCode = $LASTEXITCODE
+
+            $curlOutputText = Convert-CommandOutputToString -Output $curlOutput
+            $httpStatus = Get-CurlHttpStatus -Output $curlOutputText
+            $curlDetails = Get-CurlDiagnosticDetails -Output $curlOutputText
+            $responseText = ''
+
+            if ([string]::IsNullOrWhiteSpace($curlDetails)) {
+                $curlDetails = "curl exited with code $curlExitCode"
+            }
+
+            if ($httpStatus) {
+                try {
+                    if (Test-Path -LiteralPath $DestinationPath) {
+                        $responseFile = Get-Item -LiteralPath $DestinationPath -ErrorAction Stop
+                        if ($responseFile.Length -gt 0) {
+                            $bytesToRead = [Math]::Min([int]$responseFile.Length, 4096)
+                            $stream = [System.IO.File]::OpenRead($DestinationPath)
+                            try {
+                                $buffer = New-Object byte[] $bytesToRead
+                                $bytesRead = $stream.Read($buffer, 0, $buffer.Length)
+                            }
+                            finally {
+                                $stream.Dispose()
+                            }
+
+                            if ($bytesRead -gt 0) {
+                                $responseText = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $bytesRead)
+                                $responseText = $responseText -replace "[`0-\b\v\f\x0E-\x1F]", " "
+                                $responseText = ($responseText -replace '\s+', ' ').Trim()
+                            }
+                        }
+                    }
+                }
+                catch {
+                    $responseText = ''
+                }
+            }
+
+            $curlFailureKind = if ($httpStatus) { 'http' } else { 'network' }
+
+            if ($curlExitCode -ne 0) {
+                $message = Format-CurlFailureMessage -Url $Url -Stage 'download request' -ExitCode $curlExitCode -HttpStatus $httpStatus -Details $curlDetails -ResponseText $responseText
+                throw (New-DownloadFailureException -Message $message -DownloadMethod 'curl' -FailureKind $curlFailureKind -HttpStatus $httpStatus -ExitCode $curlExitCode)
+            }
+
+            if ($httpStatus -ne '200') {
+                $message = Format-CurlFailureMessage -Url $Url -Stage 'download request' -ExitCode $curlExitCode -HttpStatus $httpStatus -Details $curlDetails -ResponseText $responseText
+                throw (New-DownloadFailureException -Message $message -DownloadMethod 'curl' -FailureKind 'http' -HttpStatus $httpStatus -ExitCode $curlExitCode)
+            }
+
+            if (!(Test-Path -LiteralPath $DestinationPath)) {
+                throw "curl download failed`nURL: $Url`nDestination file was not created: $DestinationPath"
+            }
+
+            $downloadedFile = Get-Item -LiteralPath $DestinationPath -ErrorAction SilentlyContinue
+            if ($null -eq $downloadedFile -or $downloadedFile.Length -le 0) {
+                throw "curl download failed`nURL: $Url`nDownloaded file is empty: $DestinationPath"
+            }
+
+            return
+        }
+        'webclient' {
+            try {
+                Invoke-WebClientDownloadWithProgress -WebClient $WebClient -Url $Url -DestinationPath $DestinationPath
+            }
+            catch {
+                $webException = $_.Exception
+                $httpStatus = ''
+                $details = $webException.Message
+                $failureKind = 'network'
+
+                if ($webException -is [System.Net.WebException]) {
+                    $details = "WebException status: $($webException.Status)"
+
+                    $httpResponse = $webException.Response -as [System.Net.HttpWebResponse]
+                    if ($httpResponse) {
+                        $httpStatus = [string][int]$httpResponse.StatusCode
+                        $statusDescription = [string]$httpResponse.StatusDescription
+                        $failureKind = 'http'
+                        if ([string]::IsNullOrWhiteSpace($statusDescription)) {
+                            $details = $webException.Message
+                        }
+                        else {
+                            $details = $statusDescription
+                        }
+                    }
+                    elseif ($webException.Message) {
+                        $details = "WebException status: $($webException.Status)`n$($webException.Message)"
+                    }
+                }
+
+                $lines = @(
+                    'webclient download request failed',
+                    "URL: $Url"
+                )
+
+                if ($httpStatus) {
+                    $lines += "HTTP status: $httpStatus"
+                }
+
+                if ($details) {
+                    $lines += "Details: $details"
+                }
+
+                $message = $lines -join [Environment]::NewLine
+                throw (New-DownloadFailureException -Message $message -DownloadMethod 'webclient' -FailureKind $failureKind -HttpStatus $httpStatus -InnerException $webException)
+            }
+
+            return
+        }
+    }
+}
+
 function downloadSp([string]$DownloadFolder) {
 
     $webClient = New-Object -TypeName System.Net.WebClient
 
-    Import-Module BitsTransfer
-        
-    $max_x86 = [Version]"1.2.53"
-    $versionParts = $onlineFull -split '\.'
-    $short = [Version]"$($versionParts[0]).$($versionParts[1]).$($versionParts[2])"
-    $arch = if ($short -le $max_x86) { "win32-x86" } else { "win32-x86_64" }
+    $spotifyVersion = Get-SpotifyVersionNumber -SpotifyVersion $onlineFull
+    $arch = Get-SpotifyInstallerArchitecture `
+        -SystemArchitecture $systemArchitecture `
+        -SpotifyVersion $spotifyVersion `
+        -LastX86SupportedVersion $last_x86
 
-     $web_Url = "https://upgrade.scdn.co/upgrade/client/$arch/spotify_installer-$onlineFull.exe"
+    $downloadBaseUrl = $spotifyDownloadBaseUrl
+    if ($onlineFull -eq $spotifyTemporaryDownloadVersion -and $arch -eq 'x64') {
+        $downloadBaseUrl = $spotifyTemporaryDownloadBaseUrl
+    }
+
+    $web_Url = "$downloadBaseUrl/spotify_installer-$onlineFull-$arch.exe"
     $local_Url = Join-Path $DownloadFolder 'SpotifySetup.exe'
     $web_name_file = "SpotifySetup.exe"
-
-    try { if (curl.exe -V) { $curl_check = $true } }
-    catch { $curl_check = $false }
-    
-    try { 
-        if ($curl_check) {
-            $stcode = curl.exe -Is -w "%{http_code} \n" -o NUL -k $web_Url --retry 2 --ssl-no-revoke
-            if ($stcode.trim() -ne "200") {
-                Write-Host "Curl error code: $stcode"; throw
-            }
-            curl.exe -q -k $web_Url -o $local_Url --progress-bar --retry 3 --ssl-no-revoke
-            return
-        }
-        if (!($curl_check ) -and $null -ne (Get-Module -Name BitsTransfer -ListAvailable)) {
-            $ProgressPreference = 'Continue'
-            Start-BitsTransfer -Source  $web_Url -Destination $local_Url  -DisplayName ($lang).Download5 -Description "$online "
-            return
-        }
-        if (!($curl_check ) -and $null -eq (Get-Module -Name BitsTransfer -ListAvailable)) {
-            $webClient.DownloadFile($web_Url, $local_Url) 
-            return
-        }
+    try {
+        $selectedDownloadMethod = Resolve-SpotifyDownloadMethod -ForcedMethod $download_method
     }
-
     catch {
-        Write-Host
-        Write-Host ($lang).Download $web_name_file -ForegroundColor RED
-        $Error[0].Exception
-        Write-Host
-        Write-Host ($lang).Download2`n
+        Write-Warning $_.Exception.Message
+        Stop-Script
+    }
 
-        Start-Sleep -Milliseconds 5000 
-        try { 
+    $lastDownloadError = $null
+    $lastDownloadMethod = $selectedDownloadMethod
 
-            if ($curl_check) {
-                $stcode = curl.exe -Is -w "%{http_code} \n" -o NUL -k $web_Url --retry 2 --ssl-no-revoke
-                if ($stcode.trim() -ne "200") {
-                    Write-Host "Curl error code: $stcode"; throw
-                }
-                curl.exe -q -k $web_Url -o $local_Url --progress-bar --retry 3 --ssl-no-revoke
+    if ($selectedDownloadMethod -eq 'curl') {
+        $curlResult = Invoke-DownloadMethodWithRetries `
+            -Url $web_Url `
+            -DestinationPath $local_Url `
+            -WebClient $webClient `
+            -DownloadMethod 'curl' `
+            -FileName $web_name_file
+
+        if ($curlResult.Success) {
+            return
+        }
+
+        $lastDownloadError = $curlResult.Error
+        $lastDownloadMethod = $curlResult.Method
+
+        Write-DownloadFailureDetails -Method 'curl' -Exception $lastDownloadError -Title 'Curl download failed again'
+
+        $httpStatus = if ($lastDownloadError) { [string]$lastDownloadError.Data['HttpStatus'] } else { '' }
+        $shouldUseWebClientFallback = $httpStatus -ne '429'
+        if ($shouldUseWebClientFallback) {
+            Write-Host "Switching to WebClient fallback..." -ForegroundColor Yellow
+            Write-Host
+
+            if (Test-Path -LiteralPath $local_Url) {
+                Remove-Item -LiteralPath $local_Url -Force -ErrorAction SilentlyContinue
+            }
+
+            try {
+                $lastDownloadMethod = 'webclient'
+                Write-Host "Download method: webclient (fallback)" -ForegroundColor Yellow
+                Invoke-SpotifyDownloadAttempt `
+                    -Url $web_Url `
+                    -DestinationPath $local_Url `
+                    -WebClient $webClient `
+                    -DownloadMethod 'webclient'
                 return
             }
-            if (!($curl_check ) -and $null -ne (Get-Module -Name BitsTransfer -ListAvailable) -and !($curl_check )) {
-                Start-BitsTransfer -Source  $web_Url -Destination $local_Url  -DisplayName ($lang).Download5 -Description "$online "
-                return
-            }
-            if (!($curl_check ) -and $null -eq (Get-Module -Name BitsTransfer -ListAvailable) -and !($curl_check )) {
-                $webClient.DownloadFile($web_Url, $local_Url) 
-                return
+            catch {
+                $lastDownloadError = $_.Exception
+                Write-Host
+                Write-DownloadFailureDetails -Method 'webclient' -Exception $lastDownloadError -Title 'WebClient fallback failed'
             }
         }
-        
-        catch {
-            Write-Host ($lang).Download3 -ForegroundColor RED
-            $Error[0].Exception
-            Write-Host
-            Write-Host ($lang).Download4`n
-
-            if ($DownloadFolder -and (Test-Path $DownloadFolder)) {
-                Start-Sleep -Milliseconds 200
-                Remove-Item -Recurse -LiteralPath $DownloadFolder -ErrorAction SilentlyContinue
+        else {
+            if ($httpStatus) {
+                Write-Host ("Skipping WebClient fallback because the server returned HTTP {0}." -f $httpStatus) -ForegroundColor Yellow
+                Write-Host
             }
-            Stop-Script
         }
     }
-} 
+    else {
+        $downloadResult = Invoke-DownloadMethodWithRetries `
+            -Url $web_Url `
+            -DestinationPath $local_Url `
+            -WebClient $webClient `
+            -DownloadMethod $selectedDownloadMethod `
+            -FileName $web_name_file
+
+        if ($downloadResult.Success) {
+            return
+        }
+
+        $lastDownloadError = $downloadResult.Error
+        $lastDownloadMethod = $downloadResult.Method
+    }
+
+    Write-Host ($lang).Download3 -ForegroundColor RED
+    if ($lastDownloadError) {
+        Write-DownloadFailureDetails -Method $lastDownloadMethod -Exception $lastDownloadError
+    }
+    Write-Host ($lang).Download4`n
+
+    if ($DownloadFolder -and (Test-Path $DownloadFolder)) {
+        Start-Sleep -Milliseconds 200
+        Remove-Item -Recurse -LiteralPath $DownloadFolder -ErrorAction SilentlyContinue
+    }
+
+    Stop-Script
+}
 
 function Remove-TempDirectory {
     param(
@@ -683,51 +1354,19 @@ if ($win10 -or $win11 -or $win8_1 -or $win8 -or $win12) {
         }
         if ($confirm_uninstall_ms_spoti) { $ch = 'y' }
         if ($ch -eq 'y') {      
-            $ProgressPreference = 'SilentlyContinue' # Hiding Progress Bars
-            if ($confirm_uninstall_ms_spoti) { Write-Host ($lang).MsSpoti3`n }
-            if (!($confirm_uninstall_ms_spoti)) { Write-Host ($lang).MsSpoti4`n }
-            Get-AppxPackage -Name SpotifyAB.SpotifyMusic | Remove-AppxPackage
+            $previousProgressPreference = $ProgressPreference
+            try {
+                $ProgressPreference = 'SilentlyContinue' # Hiding Progress Bars
+                if ($confirm_uninstall_ms_spoti) { Write-Host ($lang).MsSpoti3`n }
+                if (!($confirm_uninstall_ms_spoti)) { Write-Host ($lang).MsSpoti4`n }
+                Get-AppxPackage -Name SpotifyAB.SpotifyMusic | Remove-AppxPackage
+            }
+            finally {
+                $ProgressPreference = $previousProgressPreference
+            }
         }
         if ($ch -eq 'n') {
             Stop-Script
-        }
-    }
-}
-
-# Attempt to fix the hosts file
-$hostsFilePath = Join-Path $Env:windir 'System32\Drivers\Etc\hosts'
-$hostsBackupFilePath = Join-Path $Env:windir 'System32\Drivers\Etc\hosts.bak'
-
-if (Test-Path -Path $hostsFilePath) {
-
-    $hosts = [System.IO.File]::ReadAllLines($hostsFilePath)
-    $regex = "^(?!#|\|)((?:.*?(?:download|upgrade)\.scdn\.co|.*?spotify).*)"
-
-    if ($hosts -match $regex) {
-
-        Write-Host ($lang).HostInfo`n
-        Write-Host ($lang).HostBak`n
-
-        Copy-Item -Path $hostsFilePath -Destination $hostsBackupFilePath -ErrorAction SilentlyContinue
-
-        if ($?) {
-
-            Write-Host ($lang).HostDel
-
-            try {
-                $hosts = $hosts | Where-Object { $_ -notmatch $regex }
-                [System.IO.File]::WriteAllLines($hostsFilePath, $hosts)
-            }
-            catch {
-                Write-Host ($lang).HostError`n -ForegroundColor Red
-                $copyError = $Error[0]
-                Write-Host "Error: $($copyError.Exception.Message)`n" -ForegroundColor Red
-            }
-        }
-        else {
-            Write-Host ($lang).HostError`n -ForegroundColor Red
-            $copyError = $Error[0]
-            Write-Host "Error: $($copyError.Exception.Message)`n" -ForegroundColor Red
         }
     }
 }
@@ -767,41 +1406,54 @@ if ($spotifyInstalled) {
     }
   
     # Unsupported version Spotify
-   if ($testversion -and -not $SpotifyPath) {
-
-        # Submit unsupported version of Spotify to google form for further processing
-
-        $binary = if (Test-Path $spotifyDll) {
-            $spotifyDll
+if ($oldversion -and -not $SpotifyPath) {
+        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) {
+            Write-Host ($lang).OldV`n
         }
-        else {
-            $spotifyExecutable
-        }
-
-        Start-Job -ScriptBlock {
-            param($binary, $win_os, $psv, $online, $offline)
-
-            try { 
-                $country = [System.Globalization.RegionInfo]::CurrentRegion.EnglishName
-                $txt = [IO.File]::ReadAllText($binary)
-                $regex = "(?<![\w\-])(\d+)\.(\d+)\.(\d+)\.(\d+)(\.g[0-9a-f]{8})(?![\w\-])"
-                $matches = [regex]::Matches($txt, $regex)
-                $ver = $matches[0].Value
-                $Parameters = @{
-                    Uri    = 'https://docs.google.com/forms/d/e/1FAIpQLSegGsAgilgQ8Y36uw-N7zFF6Lh40cXNfyl1ecHPpZcpD8kdHg/formResponse'
-                    Method = 'POST'
-                    Body   = @{
-                        'entry.620327948'  = $ver
-                        'entry.1951747592' = $country
-                        'entry.1402903593' = $win_os
-                        'entry.860691305'  = $psv
-                        'entry.2067427976' = $online + " < " + $offline
-                    }   
+        if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
+            do {
+                Write-Host (($lang).OldV2 -f $offline, $online)
+                $ch = Read-Host -Prompt ($lang).OldV3
+                Write-Host
+                if (!($ch -eq 'n' -or $ch -eq 'y')) {
+                    incorrectValue
                 }
-                Invoke-WebRequest @Parameters -UseBasicParsing -ErrorAction SilentlyContinue | Out-Null
             }
-            catch { }
-        } -ArgumentList $binary, $win_os, $psv, $online, $offline | Out-Null
+            while ($ch -notmatch '^y$|^n$')
+        }
+        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) { 
+            $ch = 'y' 
+            Write-Host ($lang).AutoUpd`n
+        }
+        if ($ch -eq 'y') { 
+            $upgrade_client = $true 
+
+            if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
+                do {
+                    $ch = Read-Host -Prompt (($lang).DelOrOver -f $offline)
+                    Write-Host
+                    if (!($ch -eq 'n' -or $ch -eq 'y')) {
+                        incorrectValue
+                    }
+                }
+                while ($ch -notmatch '^y$|^n$')
+            }
+            if ($confirm_spoti_recomended_uninstall) { $ch = 'y' }
+            if ($confirm_spoti_recomended_over) { $ch = 'n' }
+            if ($ch -eq 'y') {
+                Write-Host ($lang).DelOld`n 
+                $null = Unlock-Folder 
+                Invoke-SpotifyUninstall -InstalledVersion $offline
+            }
+            if ($ch -eq 'n') { $ch = $null }
+        }
+        if ($ch -eq 'n') { 
+            $downgrading = $true
+        }
+    }
+    
+    # Unsupported version Spotify (skip if custom path is used)
+    if ($testversion -and -not $SpotifyPath) {
 
         if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) {
             Write-Host ($lang).NewV`n
@@ -852,12 +1504,7 @@ if ($spotifyInstalled) {
                 if ($ch -eq 'y') {
                     Write-Host ($lang).DelNew`n
                     $null = Unlock-Folder
-                    cmd /c $spotifyExecutable /UNINSTALL /SILENT
-                    wait-process -name SpotifyUninstall
-                    Start-Sleep -Milliseconds 200
-                    if (Test-Path $spotifyDirectory) { Remove-Item -Recurse -Force -LiteralPath $spotifyDirectory }
-                    if (Test-Path $spotifyDirectory2) { Remove-Item -Recurse -Force -LiteralPath $spotifyDirectory2 }
-                    if (Test-Path $spotifyUninstall ) { Remove-Item -Recurse -Force -LiteralPath $spotifyUninstall }
+                    Invoke-SpotifyUninstall -InstalledVersion $offline
                 }
                 if ($ch -eq 'n') { $ch = $null }
             }
@@ -993,7 +1640,7 @@ if ($ch -eq 'n') {
 
 $ch = $null
 
-$webjson = Get -Url (Get-Link -e "/patches/patches.json") -RetrySeconds 5
+$webjson = Get-PatchesJson -LocalPath $CustomPatchesPath
         
 if ($webjson -eq $null) { 
     Write-Host
@@ -1141,7 +1788,12 @@ function Helper($paramname) {
                 Move-Json -n 'DevicePickerSidePanel' -t $Enable -f $Disable
             }
 
-            if ([version]$offline -ge [version]'1.2.41.434' -and $lyrics_block) { Move-Json -n 'Lyrics' -t $Enable -f $Disable } 
+            if ([version]$offline -ge [version]'1.2.41.434' -and $lyrics_block) { Move-Json -n 'Lyrics' -t $Enable -f $Disable }
+
+            Remove-Json -j $Enable -p 'RightSidebarLyrics'
+            if ($Custom.PSObject.Properties.Name -contains 'LyricsVariationsInNPV') {
+                $Custom.LyricsVariationsInNPV.value = "CONTROL"
+            }
 
             if ([version]$offline -eq [version]'1.2.30.1135') { Move-Json -n 'QueueOnRightPanel' -t $Enable -f $Disable }
 
@@ -1189,11 +1841,6 @@ function Helper($paramname) {
                 }
                 else {
                     if (!($rightsidebarcolor)) { Remove-Json -j $Enable -p 'RightSidebarColors' }
-                    
-                    if ($old_lyrics) { 
-                        Remove-Json -j $Enable -p 'RightSidebarLyrics' 
-                        $Custom.LyricsVariationsInNPV.value = "CONTROL"
-                    } 
                 }
             }
   if (!$premium) { Remove-Json -j $Enable -p 'RemoteDownloads', 'Magpie', 'MagpiePrompting', 'MagpieScheduling', 'MagpieCuration' }
@@ -1203,7 +1850,7 @@ function Helper($paramname) {
                 $objects = @(
                     @{
                         Object           = $webjson.others.CustomExp.psobject.properties
-                        PropertiesToKeep = @('LyricsUpsell')
+                        PropertiesToKeep = @('LyricsUpsell', 'LyricsVariationsInNPV')
                     },
                     @{
                         Object           = $webjson.others.EnableExp.psobject.properties
@@ -1391,6 +2038,10 @@ function Helper($paramname) {
     $offline_patch = $offline -replace '(\d+\.\d+\.\d+)(.\d+)', '$1'
 
     $contents | foreach { 
+
+        if ($json.$PSItem.disable -eq $true) {
+            return
+        }
 
         if ( $json.$PSItem.version.to ) { $to = [version]$json.$PSItem.version.to -ge [version]$offline_patch } else { $to = $true }
         if ( $json.$PSItem.version.fr ) { $fr = [version]$json.$PSItem.version.fr -le [version]$offline_patch } else { $fr = $false }
@@ -2186,6 +2837,15 @@ if ($test_spa) {
 
     # Forced exp
     extract -counts 'one' -method 'zip' -name 'xpui.js' -helper 'ForcedExp' -add $webjson.others.byaimods.add
+
+    # Send new versions
+    if (!($sendversion_off)) {
+        $checkVersion = Get -Url (Get-Link -e "/js-helper/checkVersion.js")
+
+        if ($checkVersion -ne $null) {
+            injection -p $xpui_spa_patch -f "aimods-helper" -n "checkVersion.js" -c $checkVersion
+        }
+    }
 
     # Hiding Ad-like sections or turn off podcasts from the homepage
     if ($podcast_off -or $adsections_off -or $canvashome_off) {
