@@ -149,7 +149,6 @@ param
 $PSDefaultParameterValues['Stop-Process:ErrorAction'] = [System.Management.Automation.ActionPreference]::SilentlyContinue
 
 function Format-LanguageCode {
-    
     # Normalizes and confirms support of the selected language.
     [CmdletBinding()]
     [OutputType([string])]
@@ -158,169 +157,17 @@ function Format-LanguageCode {
         [string]$LanguageCode
     )
     
-    $supportLanguages = @(
-        'be', 'bn', 'cs', 'de', 'el', 'en', 'es', 'fa', 'fi', 'fil', 'fr', 'hi', 'hu', 
-        'id', 'it', 'ja', 'ka', 'ko', 'lv', 'pl', 'pt', 'ro', 'ru', 'sk', 'sr', 
-        'sv', 'ta', 'tr', 'ua', 'vi', 'zh', 'zh-TW'
-    )
+    # Normalize to lowercase for consistent matching
+    $normalizedCode = $LanguageCode.Trim().ToLower()
     
-    # Trim the language code down to two letter code.
-    switch -Regex ($LanguageCode) {
-        '^be' {
-            $returnCode = 'be'
-            break
-        }
-        '^bn' {
-            $returnCode = 'bn'
-            break
-        }
-        '^cs' {
-            $returnCode = 'cs'
-            break
-        }
-        '^de' {
-            $returnCode = 'de'
-            break
-        }
-        '^el' {
-            $returnCode = 'el'
-            break
-        }
-        '^en' {
-            $returnCode = 'en'
-            break
-        }
-        '^es' {
-            $returnCode = 'es'
-            break
-        }
-        '^fa' {
-            $returnCode = 'fa'
-            break
-        }
-        '^fi$' {
-            $returnCode = 'fi'
-            break
-        }
-        '^fil' {
-            $returnCode = 'fil'
-            break
-        }
-        '^fr' {
-            $returnCode = 'fr'
-            break
-        }
-        '^hi' {
-            $returnCode = 'hi'
-            break
-        }
-        '^hu' {
-            $returnCode = 'hu'
-            break
-        }
-        '^id' {
-            $returnCode = 'id'
-            break
-        }
-        '^it' {
-            $returnCode = 'it'
-            break
-        }
-        '^ja' {
-            $returnCode = 'ja'
-            break
-        }
-        '^ka' {
-            $returnCode = 'ka'
-            break
-        }
-        '^ko' {
-            $returnCode = 'ko'
-            break
-        }
-        '^lv' {
-            $returnCode = 'lv'
-            break
-        }
-        '^pl' {
-            $returnCode = 'pl'
-            break
-        }
-        '^pt' {
-            $returnCode = 'pt'
-            break
-        }
-        '^ro' {
-            $returnCode = 'ro'
-            break
-        }
-        '^(ru|py)' {
-            $returnCode = 'ru'
-            break
-        }
-        '^sk' {
-            $returnCode = 'sk'
-            break
-        }
-        '^sr' {
-            $returnCode = 'sr'
-            break
-        }
-        '^sv' {
-            $returnCode = 'sv'
-            break
-        }
-        '^ta' {
-            $returnCode = 'ta'
-            break
-        }
-        '^tr' {
-            $returnCode = 'tr'
-            break
-        }
-        '^ua' {
-            $returnCode = 'ua'
-            break
-        }
-        '^vi' {
-            $returnCode = 'vi'
-            break
-        }
-        '^(zh|zh-CN)$' {
-            $returnCode = 'zh'
-            break
-        }
-        '^zh-TW' {
-            $returnCode = 'zh-TW'
-            break
-        }
-        Default {
-            $returnCode = $PSUICulture
-            $long_code = $true
-            break
-        }
+    # Check for Italian
+    if ($normalizedCode -match '^(it|ita|italian)') {
+        return 'it'
     }
-        
-    # Checking the long language code
-    if ($long_code -and $returnCode -NotIn $supportLanguages) {
-        if ($returnCode -match '-') {
-            $intermediateCode = $returnCode.Substring(0, $returnCode.LastIndexOf('-'))
-            
-            if ($intermediateCode -in $supportLanguages) {
-                $returnCode = $intermediateCode
-            }
-            else {
-                $returnCode = $returnCode -split "-" | Select-Object -First 1
-            }
-        }
-    }
-
-    if ($returnCode -NotIn $supportLanguages) {
-
-        $returnCode = 'it'
-    }
-    return $returnCode 
-}   
+    
+    # Default to English for all other cases
+    return 'en'
+}
 
 $spotifyDirectory = Join-Path $env:APPDATA 'Spotify'
 $spotifyDirectory2 = Join-Path $env:LOCALAPPDATA 'Spotify'
