@@ -144,24 +144,19 @@ param
 # Ignore errors from `Stop-Process`
 $PSDefaultParameterValues['Stop-Process:ErrorAction'] = [System.Management.Automation.ActionPreference]::SilentlyContinue
 
+$PSDefaultParameterValues['Stop-Process:ErrorAction'] = [System.Management.Automation.ActionPreference]::SilentlyContinue
+
 function Format-LanguageCode {
-    # Normalizes and confirms support of the selected language.
     [CmdletBinding()]
     [OutputType([string])]
-    param
-    (
+    param (
         [string]$LanguageCode
     )
-    
-    # Normalize to lowercase for consistent matching
-    $normalizedCode = $LanguageCode.Trim().ToLower()
-    
-    # Check for Italian
-    if ($normalizedCode -match '^(it|ita|italian)') {
+
+    if ($LanguageCode -match '^it') {
         return 'it'
     }
-    
-    # Default to English for all other cases
+
     return 'en'
 }
 
