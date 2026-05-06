@@ -148,7 +148,6 @@ $PSDefaultParameterValues['Stop-Process:ErrorAction'] = [System.Management.Autom
 
 function Format-LanguageCode {
     
-    # Normalizes and confirms support of the selected language.
     [CmdletBinding()]
     [OutputType([string])]
     param
@@ -158,16 +157,9 @@ function Format-LanguageCode {
     
     $supportLanguages = @('it', 'en')
     
-    # Trim the language code down to two letter code.
     switch -Regex ($LanguageCode) {
-        '^en' {
-            $returnCode = 'en'
-            break
-        }
-        '^it' {
-            $returnCode = 'it'
-            break
-        }
+        '^en' { $returnCode = 'en'; break }
+        '^it' { $returnCode = 'it'; break }
         Default {
             $returnCode = $PSUICulture
             $long_code = $true
@@ -175,7 +167,6 @@ function Format-LanguageCode {
         }
     }
     
-    # Checking the long language code
     if ($long_code -and $returnCode -NotIn $supportLanguages) {
         if ($returnCode -match '-') {
             $intermediateCode = $returnCode.Substring(0, $returnCode.LastIndexOf('-'))
@@ -190,11 +181,12 @@ function Format-LanguageCode {
     }
 
     if ($returnCode -NotIn $supportLanguages) {
-
         $returnCode = 'en'
     }
+
+    Write-Host "Lingua rilevata: $returnCode"
     return $returnCode 
-}   
+}
 
 $spotifyDirectory = Join-Path $env:APPDATA 'Spotify'
 $spotifyDirectory2 = Join-Path $env:LOCALAPPDATA 'Spotify'
