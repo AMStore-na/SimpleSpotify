@@ -106,9 +106,6 @@ param
 
     [Parameter(HelpMessage = 'Enable right sidebar coloring to match cover color)')]
     [switch]$rightsidebarcolor,
-    
-    [Parameter(HelpMessage = 'Returns old lyrics')]
-    [switch]$old_lyrics,
 
     [Parameter(HelpMessage = 'Disable native lyrics')]
     [switch]$lyrics_block,
@@ -118,7 +115,6 @@ param
 
     [Parameter(HelpMessage = 'Disable sending new versions')]
     [switch]$sendversion_off,
-    
 
     [Parameter(HelpMessage = 'Static color for lyrics.')]
     [ArgumentCompleter({ param($cmd, $param, $wordToComplete)
