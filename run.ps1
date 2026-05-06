@@ -265,14 +265,73 @@ $win10 = $win_os -match "\windows 10\b"
 $win8_1 = $win_os -match "\windows 8.1\b"
 $win8 = $win_os -match "\windows 8\b"
 $win7 = $win_os -match "\windows 7\b"
+function Get-SystemArchitecture {
+    $archNames = @($env:PROCESSOR_ARCHITEW6432, $env:PROCESSOR_ARCHITECTURE) | Where-Object { $_ }
 
-$match_v = "^\d+\.\d+\.\d+\.\d+\.g[0-9a-f]{8}-\d+$"
+    foreach ($archName in $archNames) {
+        switch ($archName.ToUpperInvariant()) {
+            'ARM64' { return 'arm64' }
+            'AMD64' { return 'x64' }
+            'X86' { return 'x86' }
+        }
+    }
+
+    return 'x64'
+}
+
+function Get-SpotifyVersionNumber {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SpotifyVersion
+    )
+
+    return [Version]($SpotifyVersion -replace '\.g[0-9a-f]{8}$', '')
+}
+
+function Get-SpotifyInstallerArchitecture {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SystemArchitecture,
+        [Parameter(Mandatory = $true)]
+        [version]$SpotifyVersion,
+        [Parameter(Mandatory = $true)]
+        [version]$LastX86SupportedVersion
+    )
+
+    switch ($SystemArchitecture) {
+        'arm64' { return 'arm64' }
+        'x64' {
+            if ($SpotifyVersion -le $LastX86SupportedVersion) {
+                return 'x86'
+            }
+
+            return 'x64'
+        }
+        'x86' {
+            if ($SpotifyVersion -le $LastX86SupportedVersion) {
+                return 'x86'
+            }
+
+            throw "Version $SpotifyVersion is not supported on x86 systems"
+        }
+        default { return 'x64' }
+    }
+}
+
+$spotifyDownloadBaseUrl = "https://loadspot.amd64fox1.workers.dev/download"
+$spotifyTemporaryDownloadBaseUrl = "https://loadspot.amd64fox1.workers.dev/temporary-download"
+$spotifyTemporaryDownloadVersion = "1.2.86.502.g8cd7fb22"
+$systemArchitecture = Get-SystemArchitecture
+
+$match_v = "^(?<version>\d+\.\d+\.\d+\.\d+\.g[0-9a-f]{8})(?:-\d+)?$"
+$versionIsSupported = $false
 if ($version) {
     if ($version -match $match_v) {
-        $onlineFull = $version
+        $onlineFull = $Matches.version
+        $versionIsSupported = $true
     }
     else {      
-        Write-Warning "Invalid $($version) format. Example: 1.2.13.661.ga588f749-4064"
+        Write-Warning "Invalid $($version) format. Example: 1.2.13.661.ga588f749 (legacy -4064 suffix is optional)"
         Write-Host
     }
 }
@@ -423,6 +482,7 @@ function Unlock-Folder {
         }
     }
 }
+
 function Invoke-SpotifyUninstall {
     param(
         [Parameter(Mandatory = $true)]
@@ -1487,7 +1547,7 @@ $webjson = Get-PatchesJson -LocalPath $CustomPatchesPath
         
 if ($webjson -eq $null) { 
     Write-Host
-    Write-Host "Failed to get patches.json" -ForegroundColor Red
+    Write-Host "Failed to load patches.json" -ForegroundColor Red
     Remove-TempDirectory -Directory $tempDirectory
     Stop-Script
 }
