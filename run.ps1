@@ -2,7 +2,7 @@
 param
 (
     [Parameter(HelpMessage = 'Latest recommended Spotify version for Windows 10+.')]
-    [string]$latest_full = "1.2.88.485.g1012a6e0",
+    [string]$latest_full = "1.2.90",
 
     [Parameter(HelpMessage = 'Latest supported Spotify version for Windows 7-8.1')]
     [string]$last_win7_full = "1.2.5.1006.g22820f93",
@@ -204,6 +204,13 @@ $spotifyUninstall = Join-Path ([System.IO.Path]::GetTempPath()) 'SpotifyUninstal
 $start_menu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Spotify.lnk'
 
 $upgrade_client = $false
+$downgrading = $false
+$ru = $false
+$podcast_off = $false
+$css = $null
+$calltype = $null
+$tempDirectory = $null
+$script:curlSupportsFailWithBody = $null
 
 # Check version Powershell
 $psv = $PSVersionTable.PSVersion.major
@@ -233,6 +240,17 @@ function Stop-Script {
         }
     }
     Exit
+}
+
+function Stop-BrokenSpotifyFiles {
+    param(
+        [string]$Details
+    )
+
+    if ($Details) { Write-Warning $Details }
+    Write-Host ($lang).Error -ForegroundColor Red
+    Write-Host ($lang).FileLocBroken
+    Stop-Script
 }
 function Get-Link {
     param (
@@ -341,20 +359,114 @@ function Get-SpotifyInstallerArchitecture {
     }
 }
 
+function Test-SpotifyVersionRequiresResolution {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SpotifyVersion
+    )
+
+    return $SpotifyVersion -match '^\d+\.\d+\.\d+(?:\.\d+)?$'
+}
+
+function Get-SpotifyVersionsManifest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+
+    $previousProgressPreference = $ProgressPreference
+    try {
+        $ProgressPreference = 'SilentlyContinue'
+        return Invoke-RestMethod -Uri $Url -UseBasicParsing -TimeoutSec 15
+    }
+    catch {
+        throw "Failed to load Spotify versions manifest`nURL: $Url`n$($_.Exception.Message)"
+    }
+    finally {
+        $ProgressPreference = $previousProgressPreference
+    }
+}
+
+function Resolve-SpotifyInstallerVersionFromManifest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$VersionsManifest,
+        [Parameter(Mandatory = $true)]
+        [string]$SpotifyVersion,
+        [Parameter(Mandatory = $true)]
+        [string]$Architecture
+    )
+
+    $versions = @($VersionsManifest.PSObject.Properties)
+
+    if ($SpotifyVersion -match '^\d+\.\d+\.\d+$') {
+        $versionPrefix = "$SpotifyVersion."
+        $selectedVersion = $versions |
+        Where-Object { $_.Name.StartsWith($versionPrefix, [System.StringComparison]::Ordinal) } |
+        Sort-Object { [version]$_.Name } -Descending |
+        Select-Object -First 1
+    }
+    else {
+        $selectedVersion = $versions | Where-Object { $_.Name -eq $SpotifyVersion } | Select-Object -First 1
+    }
+
+    if (!$selectedVersion) {
+        throw "Spotify version $SpotifyVersion was not found in versions manifest"
+    }
+
+    $entry = $selectedVersion.Value
+    $fullVersion = [string]$entry.fullversion
+    if ($fullVersion -notmatch '^\d+\.\d+\.\d+\.\d+\.g[0-9a-f]{8}$') {
+        throw "Spotify version $($selectedVersion.Name) has invalid fullversion in versions manifest"
+    }
+
+    $windowsAssets = $entry.win
+    $architectureAsset = if ($windowsAssets) {
+        $windowsAssets.PSObject.Properties[$Architecture]
+    }
+    else {
+        $null
+    }
+
+    if (!$architectureAsset) {
+        throw "Spotify version $($selectedVersion.Name) does not have Windows $Architecture asset in versions manifest"
+    }
+
+    $assetUrl = [string]$architectureAsset.Value.url
+    if (!$assetUrl) {
+        throw "Spotify version $($selectedVersion.Name) does not have Windows $Architecture URL in versions manifest"
+    }
+
+    $expectedAssetName = "spotify_installer-$fullVersion-$Architecture.exe"
+    try {
+        $assetFileName = [System.IO.Path]::GetFileName(([Uri]$assetUrl).AbsolutePath)
+    }
+    catch {
+        $assetFileName = ''
+    }
+
+    if ($assetFileName -ne $expectedAssetName) {
+        throw "Spotify version $($selectedVersion.Name) has unexpected Windows $Architecture asset in versions manifest"
+    }
+
+    return $fullVersion
+}
+
 $spotifyDownloadBaseUrl = "https://loadspot.amd64fox1.workers.dev/download"
 $spotifyTemporaryDownloadBaseUrl = "https://loadspot.amd64fox1.workers.dev/temporary-download"
 $spotifyTemporaryDownloadVersion = "1.2.86.502.g8cd7fb22"
+$spotifyVersionsManifestUrl = "https://raw.githubusercontent.com/LoaderSpot/table/refs/heads/main/table/versions.json"
 $systemArchitecture = Get-SystemArchitecture
 
-$match_v = "^(?<version>\d+\.\d+\.\d+\.\d+\.g[0-9a-f]{8})(?:-\d+)?$"
+$match_v = "^(?<version>\d+\.\d+\.\d+(?:\.\d+(?:\.g[0-9a-f]{8})?)?)(?:-\d+)?$"
 $versionIsSupported = $false
 if ($version) {
     if ($version -match $match_v) {
         $onlineFull = $Matches.version
         $versionIsSupported = $true
     }
-    else {      
-        Write-Warning "Invalid $($version) format. Example: 1.2.13.661.ga588f749 (legacy -4064 suffix is optional)"
+    else {
+        Write-Warning "Invalid $($version) format. Example: 1.2.88 or 1.2.88.485.g1012a6e0 (legacy -4064 suffix is optional)"
         Write-Host
     }
 }
@@ -398,6 +510,27 @@ else {
         Write-Host
         $onlineFull = $last_x86_full
         $requestedOnlineVersion = $last_x86
+    }
+}
+$onlineDownloadVersion = $onlineFull
+
+if (Test-SpotifyVersionRequiresResolution -SpotifyVersion $onlineFull) {
+    try {
+        $onlineInstallerArchitecture = Get-SpotifyInstallerArchitecture `
+            -SystemArchitecture $systemArchitecture `
+            -SpotifyVersion (Get-SpotifyVersionNumber -SpotifyVersion $onlineFull) `
+            -LastX86SupportedVersion $last_x86
+
+        $spotifyVersionsManifest = Get-SpotifyVersionsManifest -Url $spotifyVersionsManifestUrl
+
+        $onlineFull = Resolve-SpotifyInstallerVersionFromManifest `
+            -VersionsManifest $spotifyVersionsManifest `
+            -SpotifyVersion $onlineFull `
+            -Architecture $onlineInstallerArchitecture
+    }
+    catch {
+        Write-Warning $_.Exception.Message
+        Stop-Script
     }
 }
 $online = (Get-SpotifyVersionNumber -SpotifyVersion $onlineFull).ToString()
@@ -1095,17 +1228,18 @@ function downloadSp([string]$DownloadFolder) {
     $webClient = New-Object -TypeName System.Net.WebClient
 
     $spotifyVersion = Get-SpotifyVersionNumber -SpotifyVersion $onlineFull
+    $downloadVersion = if ($onlineDownloadVersion) { $onlineDownloadVersion } else { $onlineFull }
     $arch = Get-SpotifyInstallerArchitecture `
         -SystemArchitecture $systemArchitecture `
         -SpotifyVersion $spotifyVersion `
         -LastX86SupportedVersion $last_x86
 
     $downloadBaseUrl = $spotifyDownloadBaseUrl
-    if ($onlineFull -eq $spotifyTemporaryDownloadVersion -and $arch -eq 'x64') {
+    if ($downloadVersion -eq $spotifyTemporaryDownloadVersion -and $arch -eq 'x64') {
         $downloadBaseUrl = $spotifyTemporaryDownloadBaseUrl
     }
 
-    $web_Url = "$downloadBaseUrl/spotify_installer-$onlineFull-$arch.exe"
+    $web_Url = "$downloadBaseUrl/spotify_installer-$downloadVersion-$arch.exe"
     $local_Url = Join-Path $DownloadFolder 'SpotifySetup.exe'
     $web_name_file = "SpotifySetup.exe"
     try {
@@ -1309,15 +1443,17 @@ if ($SpotifyPath -and -not $spotifyInstalled) {
 }
 
 if ($spotifyInstalled) {
-    
+
     # Check version Spotify offline
     $offline = (Get-Item $spotifyExecutable).VersionInfo.FileVersion
- 
+
     # Version comparison
     # converting strings to arrays of numbers using the -split operator and a foreach loop
-    
+
     $arr1 = $online -split '\.' | foreach { [int]$_ }
     $arr2 = $offline -split '\.' | foreach { [int]$_ }
+    $oldversion = $false
+    $testversion = $false
 
     # compare each element of the array in order from most significant to least significant.
     for ($i = 0; $i -lt $arr1.Length; $i++) {
@@ -1330,12 +1466,9 @@ if ($spotifyInstalled) {
             break
         }
     }
-  
-    # Unsupported version Spotify
-if ($oldversion -and -not $SpotifyPath) {
-        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) {
-            Write-Host ($lang).OldV`n
-        }
+
+    # Old version Spotify (skip if custom path is used)
+    if ($oldversion -and -not $SpotifyPath) {
         if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
             do {
                 Write-Host (($lang).OldV2 -f $offline, $online)
@@ -1347,12 +1480,11 @@ if ($oldversion -and -not $SpotifyPath) {
             }
             while ($ch -notmatch '^y$|^n$')
         }
-        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) { 
-            $ch = 'y' 
-            Write-Host ($lang).AutoUpd`n
+        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) {
+            $ch = 'y'
         }
-        if ($ch -eq 'y') { 
-            $upgrade_client = $true 
+        if ($ch -eq 'y') {
+            $upgrade_client = $true
 
             if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
                 do {
@@ -1367,24 +1499,22 @@ if ($oldversion -and -not $SpotifyPath) {
             if ($confirm_spoti_recomended_uninstall) { $ch = 'y' }
             if ($confirm_spoti_recomended_over) { $ch = 'n' }
             if ($ch -eq 'y') {
-                Write-Host ($lang).DelOld`n 
-                $null = Unlock-Folder 
+                Write-Host ($lang).DelSpotify`n
+                $null = Unlock-Folder
                 Invoke-SpotifyUninstall -InstalledVersion $offline
             }
             if ($ch -eq 'n') { $ch = $null }
         }
-        if ($ch -eq 'n') { 
+        if ($ch -eq 'n') {
             $downgrading = $true
         }
     }
-    
+
     # Unsupported version Spotify (skip if custom path is used)
     if ($testversion -and -not $SpotifyPath) {
+        $autoVersionDowngradeUninstall = $versionIsSupported -and !$confirm_spoti_recomended_over -and !$confirm_spoti_recomended_uninstall
 
-        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) {
-            Write-Host ($lang).NewV`n
-        }
-        if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
+        if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall) -and !$autoVersionDowngradeUninstall) {
             do {
                 Write-Host (($lang).NewV2 -f $offline, $online)
                 $ch = Read-Host -Prompt (($lang).NewV3 -f $offline)
@@ -1395,10 +1525,10 @@ if ($oldversion -and -not $SpotifyPath) {
             }
             while ($ch -notmatch '^y$|^n$')
         }
-        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) { $ch = 'n' }
+        if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall -or $autoVersionDowngradeUninstall) { $ch = 'n' }
         if ($ch -eq 'y') { $upgrade_client = $false }
         if ($ch -eq 'n') {
-            if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
+            if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall) -and !$autoVersionDowngradeUninstall) {
                 do {
                     $ch = Read-Host -Prompt (($lang).Recom -f $online)
                     Write-Host
@@ -1408,14 +1538,13 @@ if ($oldversion -and -not $SpotifyPath) {
                 }
                 while ($ch -notmatch '^y$|^n$')
             }
-            if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall) { 
-                $ch = 'y' 
-                Write-Host ($lang).AutoUpd`n
+            if ($confirm_spoti_recomended_over -or $confirm_spoti_recomended_uninstall -or $autoVersionDowngradeUninstall) {
+                $ch = 'y'
             }
             if ($ch -eq 'y') {
                 $upgrade_client = $true
                 $downgrading = $true
-                if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall)) {
+                if (!($confirm_spoti_recomended_over) -and !($confirm_spoti_recomended_uninstall) -and !$autoVersionDowngradeUninstall) {
                     do {
                         $ch = Read-Host -Prompt (($lang).DelOrOver -f $offline)
                         Write-Host
@@ -1427,8 +1556,9 @@ if ($oldversion -and -not $SpotifyPath) {
                 }
                 if ($confirm_spoti_recomended_uninstall) { $ch = 'y' }
                 if ($confirm_spoti_recomended_over) { $ch = 'n' }
+                if ($autoVersionDowngradeUninstall) { $ch = 'y' }
                 if ($ch -eq 'y') {
-                    Write-Host ($lang).DelNew`n
+                    Write-Host ($lang).DelSpotify`n
                     $null = Unlock-Folder
                     Invoke-SpotifyUninstall -InstalledVersion $offline
                 }
@@ -1614,6 +1744,21 @@ function Helper($paramname) {
             Remove-Json -j $to -p $propertyName
         }
     }
+        function Get-JsonValue {
+        param (
+            [AllowNull()]
+            [object]$Object,
+
+            [Parameter(Mandatory = $true)]
+            [string]$Name
+        )
+
+        if ($null -eq $Object) { return $null }
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -eq $property) { return $null }
+        return $property.Value
+    }
+
 
     switch ( $paramname ) {
         "HtmlLicMin" { 
@@ -1932,6 +2077,7 @@ function Helper($paramname) {
             
             if (!($ru)) { Remove-Json -j $VarJs -p "offrujs" }
 
+            $adds = $null
             if (!($premium) -or ($cache_limit)) {
                 if (!($premium)) { 
                     $adds += $webjson.VariousJs.product_state.add
@@ -1963,103 +2109,147 @@ function Helper($paramname) {
     $novariable = "Didn't find variable "
     $offline_patch = $offline -replace '(\d+\.\d+\.\d+)(.\d+)', '$1'
 
-    $contents | foreach { 
+    $contents | foreach {
 
-        if ($json.$PSItem.disable -eq $true) {
+        $contentName = $PSItem
+        $contentPatch = Get-JsonValue -Object $json -Name $contentName
+        if ($null -eq $contentPatch) {
             return
         }
 
-        if ( $json.$PSItem.version.to ) { $to = [version]$json.$PSItem.version.to -ge [version]$offline_patch } else { $to = $true }
-        if ( $json.$PSItem.version.fr ) { $fr = [version]$json.$PSItem.version.fr -le [version]$offline_patch } else { $fr = $false }
-        
+        if ((Get-JsonValue -Object $contentPatch -Name 'disable') -eq $true) {
+            return
+        }
+
+        $version = Get-JsonValue -Object $contentPatch -Name 'version'
+        $versionTo = Get-JsonValue -Object $version -Name 'to'
+        $versionFr = Get-JsonValue -Object $version -Name 'fr'
+
+        if ($versionTo) { $to = [version]$versionTo -ge [version]$offline_patch } else { $to = $true }
+        if ($versionFr) { $fr = [version]$versionFr -le [version]$offline_patch } else { $fr = $false }
+
         $checkVer = $fr -and $to; $translate = $paramname -eq "RuTranslate"
 
         if ($checkVer -or $translate) {
 
-            if ($json.$PSItem.match.Count -gt 1) {
+            $matchValue = Get-JsonValue -Object $contentPatch -Name 'match'
+            $replaceValue = Get-JsonValue -Object $contentPatch -Name 'replace'
+            if ($null -eq $matchValue -or $null -eq $replaceValue) {
+                return
+            }
 
-                $count = $json.$PSItem.match.Count - 1
+            $matchPatterns = @($matchValue)
+            $replacements = @($replaceValue)
+
+            if ($matchPatterns.Count -gt 1) {
+
+                $count = $matchPatterns.Count - 1
                 $numbers = 0
 
                 While ($numbers -le $count) {
 
-                    if ($paramdata -match $json.$PSItem.match[$numbers]) { 
-                        $paramdata = $paramdata -replace $json.$PSItem.match[$numbers], $json.$PSItem.replace[$numbers] 
+                    if ($paramdata -match $matchPatterns[$numbers]) {
+                        $paramdata = $paramdata -replace $matchPatterns[$numbers], $replacements[$numbers]
                     }
-                    else { 
+                    else {
                         $notlog = "MinJs", "MinJson", "Cssmin"
                         if ($paramname -notin $notlog) {
-    
-                            Write-Host $novariable -ForegroundColor red -NoNewline 
-                            Write-Host "$name$PSItem $numbers"'in'$n
+
+                            Write-Host $novariable -ForegroundColor red -NoNewline
+                            Write-Host "$name$contentName $numbers"'in'$n
                         }
-                    }  
+                    }
                     $numbers++
                 }
             }
-            if ($json.$PSItem.match.Count -eq 1) {
-                if ($paramdata -match $json.$PSItem.match) { 
-                    $paramdata = $paramdata -replace $json.$PSItem.match, $json.$PSItem.replace 
+            if ($matchPatterns.Count -eq 1) {
+                if ($paramdata -match $matchPatterns[0]) {
+                    $paramdata = $paramdata -replace $matchPatterns[0], $replacements[0]
                 }
-                else { 
+                else {
                     if (!($translate) -or $err_ru) {
-                        Write-Host $novariable -ForegroundColor red -NoNewline 
-                        Write-Host "$name$PSItem"'in'$n
+                        Write-Host $novariable -ForegroundColor red -NoNewline
+                        Write-Host "$name$contentName"'in'$n
                     }
                 }
-            }   
+            }
         }
     }
     $paramdata
 }
 
 function extract ($counts, $method, $name, $helper, $add, $patch) {
-    switch ( $counts ) {
-        "one" { 
-            if ($method -eq "zip") {
-                Add-Type -Assembly 'System.IO.Compression.FileSystem'
-                $xpui_spa_patch = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.spa'
-                $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update')   
-                $file = $zip.GetEntry($name)
-                $reader = New-Object System.IO.StreamReader($file.Open())
-            }
-            if ($method -eq "nonezip") {
-                $file = Get-Item (Join-Path (Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui') $name)
-                $reader = New-Object -TypeName System.IO.StreamReader -ArgumentList $file
-            }
-            $xpui = $reader.ReadToEnd()
-            $reader.Close()
-            if ($helper) { $xpui = Helper -paramname $helper } 
-            if ($method -eq "zip") { $writer = New-Object System.IO.StreamWriter($file.Open()) }
-            if ($method -eq "nonezip") { $writer = New-Object System.IO.StreamWriter -ArgumentList $file }
-            $writer.BaseStream.SetLength(0)
-            $writer.Write($xpui)
-            if ($add) { $add | foreach { $writer.Write([System.Environment]::NewLine + $PSItem ) } }
-            $writer.Close()  
-            if ($method -eq "zip") { $zip.Dispose() }
-        }
-        "more" {  
-            Add-Type -Assembly 'System.IO.Compression.FileSystem'
-            $xpui_spa_patch = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.spa'
-            $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update') 
-            $zip.Entries | Where-Object { $_.FullName -like $name -and $_.FullName.Split('/') -notcontains 'aimods-helper' } | foreach { 
-                $reader = New-Object System.IO.StreamReader($_.Open())
+    $zip = $null
+    $reader = $null
+    $writer = $null
+
+    try {
+        switch ( $counts ) {
+            "one" {
+                if ($method -eq "zip") {
+                    Add-Type -Assembly 'System.IO.Compression.FileSystem'
+                    $xpui_spa_patch = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.spa'
+                    $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update')
+                    $file = $zip.GetEntry($name)
+                    if ($null -eq $file) { throw "Archive entry not found: $name" }
+                    $reader = New-Object System.IO.StreamReader($file.Open())
+                }
+                elseif ($method -eq "nonezip") {
+                    $file = Get-Item (Join-Path (Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui') $name) -ErrorAction Stop
+                    $reader = New-Object -TypeName System.IO.StreamReader -ArgumentList $file
+                }
+                else {
+                    throw "Unsupported extraction method: $method"
+                }
+
                 $xpui = $reader.ReadToEnd()
-                $reader.Close()
-                $xpui = Helper -paramname $helper 
-                $writer = New-Object System.IO.StreamWriter($_.Open())
+                $reader.Dispose()
+                $reader = $null
+
+                if ($helper) { $xpui = Helper -paramname $helper }
+                if ($method -eq "zip") { $writer = New-Object System.IO.StreamWriter($file.Open()) }
+                if ($method -eq "nonezip") { $writer = New-Object System.IO.StreamWriter -ArgumentList $file }
                 $writer.BaseStream.SetLength(0)
                 $writer.Write($xpui)
-                $writer.Close()
+                if ($add) { $add | foreach { $writer.Write([System.Environment]::NewLine + $PSItem ) } }
+                $writer.Dispose()
+                $writer = $null
             }
-            $zip.Dispose()
+            "more" {
+                Add-Type -Assembly 'System.IO.Compression.FileSystem'
+                $xpui_spa_patch = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.spa'
+                $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update')
+                $entries = @($zip.Entries | Where-Object { $_.FullName -like $name -and $_.FullName.Split('/') -notcontains 'spotx-helper' })
+
+                foreach ($entry in $entries) {
+                    $reader = New-Object System.IO.StreamReader($entry.Open())
+                    $xpui = $reader.ReadToEnd()
+                    $reader.Dispose()
+                    $reader = $null
+
+                    $xpui = Helper -paramname $helper
+                    $writer = New-Object System.IO.StreamWriter($entry.Open())
+                    $writer.BaseStream.SetLength(0)
+                    $writer.Write($xpui)
+                    $writer.Dispose()
+                    $writer = $null
+                }
+            }
+            "exe" {
+                $ANSI = [Text.Encoding]::GetEncoding(1251)
+                $xpui = [IO.File]::ReadAllText($spotify_binary, $ANSI)
+                $xpui = Helper -paramname $helper
+                [IO.File]::WriteAllText($spotify_binary, $xpui, $ANSI)
+            }
         }
-        "exe" {
-            $ANSI = [Text.Encoding]::GetEncoding(1251)
-            $xpui = [IO.File]::ReadAllText($spotify_binary, $ANSI)
-            $xpui = Helper -paramname $helper
-            [IO.File]::WriteAllText($spotify_binary, $xpui, $ANSI)
-        }
+    }
+    catch {
+        Stop-BrokenSpotifyFiles -Details "Error: $($_.Exception.Message)"
+    }
+    finally {
+        if ($null -ne $reader) { $reader.Dispose() }
+        if ($null -ne $writer) { $writer.Dispose() }
+        if ($null -ne $zip) { $zip.Dispose() }
     }
 }
 
@@ -2084,9 +2274,11 @@ function injection {
     $folderPathInArchive = "$($FolderInArchive)/"
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $archive = [System.IO.Compression.ZipFile]::Open($ArchivePath, 'Update')
-    
+    $archive = $null
+
     try {
+        $archive = [System.IO.Compression.ZipFile]::Open($ArchivePath, 'Update')
+
         for ($i = 0; $i -lt $FileNames.Length; $i++) {
             $fileName = $FileNames[$i]
             $fileContent = $FileContents[$i]
@@ -2146,6 +2338,9 @@ function injection {
         else {
             Write-Warning "index.html not found in xpui.spa"
         }
+    }
+    catch {
+        Stop-BrokenSpotifyFiles -Details "Error: $($_.Exception.Message)"
     }
     finally {
         if ($archive -ne $null) {
@@ -2618,6 +2813,9 @@ if ($test_spa) {
     # Check for the presence of xpui.js in the xpui.spa archive
 
     $archive_spa = $null
+    $xpuiJsEntry = $null
+    $v8_snapshot = $null
+    $archiveError = $null
 
     try {
         $archive_spa = [System.IO.Compression.ZipFile]::OpenRead($xpui_spa_patch)
@@ -2656,32 +2854,50 @@ if ($test_spa) {
         }
     }
     catch {
-        Write-Warning "Error: $($_.Exception.Message)"
+        $archiveError = $_.Exception
     }
     finally {
         if ($null -ne $archive_spa) {
             $archive_spa.Dispose()
         }
-        if (-not $v8_snapshot -and $null -eq $xpuiJsEntry) {
-            Write-Warning "v8_context_snapshot file not found, cannot create xpui.js"
-            Stop-Script
-        }
+    }
+
+    if ($archiveError) {
+        Stop-BrokenSpotifyFiles -Details "Error: $($archiveError.Message)"
+    }
+
+    if (-not $v8_snapshot -and $null -eq $xpuiJsEntry) {
+        Write-Warning "v8_context_snapshot file not found, cannot create xpui.js"
+        Stop-Script
     }
 
     $bak_spa = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.bak'
     $test_bak_spa = Test-Path -Path $bak_spa
 
     # Make a backup copy of xpui.spa if it is original
-    $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update')
-    $entry = $zip.GetEntry('xpui.js')
-    $reader = New-Object System.IO.StreamReader($entry.Open())
-    $patched_by_aimods = $reader.ReadToEnd()
-    $reader.Close()
+    $zip = $null
+    $reader = $null
+
+    try {
+        $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update')
+        $entry = $zip.GetEntry('xpui.js')
+        if ($null -eq $entry) { throw "Archive entry not found: xpui.js" }
+
+        $reader = New-Object System.IO.StreamReader($entry.Open())
+        $patched_by_spotx = $reader.ReadToEnd()
+    }
+    catch {
+        Stop-BrokenSpotifyFiles -Details "Error: $($_.Exception.Message)"
+    }
+    finally {
+        if ($null -ne $reader) { $reader.Dispose() }
+        if ($null -ne $zip) { $zip.Dispose() }
+    }
 
 
     if ($offline -ge [version]'1.2.70.253') {
-        
-        $spotify_binary_bak = $dll_bak 
+
+        $spotify_binary_bak = $dll_bak
         $spotify_binary = $spotifyDll
     }
     else {
@@ -2690,8 +2906,6 @@ if ($test_spa) {
     }
 
     If ($patched_by_aimods -match 'patched by Aimods') {
-        $zip.Dispose()    
-
         if ($test_bak_spa) {
             Remove-Item $xpui_spa_patch -Recurse -Force
             Rename-Item $bak_spa $xpui_spa_patch
@@ -2733,7 +2947,6 @@ if ($test_spa) {
         }
 
     }
-    $zip.Dispose()
     Copy-Item $xpui_spa_patch $bak_spa
 
     if ($spotify_binary_bak -eq $dll_bak) {
@@ -2745,15 +2958,23 @@ if ($test_spa) {
     # Remove all languages except En and Ru from xpui.spa
     if ($ru) {
         $null = [Reflection.Assembly]::LoadWithPartialName('System.IO.Compression')
-        $stream = New-Object IO.FileStream($xpui_spa_patch, [IO.FileMode]::Open)
-        $mode = [IO.Compression.ZipArchiveMode]::Update
-        $zip_xpui = New-Object IO.Compression.ZipArchive($stream, $mode)
+        $stream = $null
+        $zip_xpui = $null
 
-    ($zip_xpui.Entries | Where-Object { $_.FullName -match "i18n" -and $_.FullName -inotmatch "(ru|en.json|longest)" }) | foreach { $_.Delete() }
+        try {
+            $stream = New-Object IO.FileStream($xpui_spa_patch, [IO.FileMode]::Open)
+            $mode = [IO.Compression.ZipArchiveMode]::Update
+            $zip_xpui = New-Object IO.Compression.ZipArchive($stream, $mode)
 
-        $zip_xpui.Dispose()
-        $stream.Close()
-        $stream.Dispose()
+            ($zip_xpui.Entries | Where-Object { $_.FullName -match "i18n" -and $_.FullName -inotmatch "(ru|en.json|longest)" }) | foreach { $_.Delete() }
+        }
+        catch {
+            Stop-BrokenSpotifyFiles -Details "Error: $($_.Exception.Message)"
+        }
+        finally {
+            if ($null -ne $zip_xpui) { $zip_xpui.Dispose() }
+            if ($null -ne $stream) { $stream.Dispose() }
+        }
     }
 
     # Full screen mode activation and removing "Upgrade to premium" menu, upgrade button, disabling a playlist sponsor
