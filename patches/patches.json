@@ -390,7 +390,7 @@
                 "native_description": "Enable esperanto Migration for Leaderboard Ad Format",
                 "version": {
                     "fr": "1.2.32",
-                    "to": ""
+                    "to": "1.2.90"
                 }
             },
             "SponsoredPlaylistEsperantoMigration": {
@@ -417,7 +417,7 @@
                 "native_description": "Allow switching between the new Home Ads format and legacy HPTO format (as opposed to only showing the legacy HPTO format)",
                 "version": {
                     "fr": "1.2.34",
-                    "to": ""
+                    "to": "1.2.94"
                 }
             },
             "LimitedAdsLabelsOnPlaylistCards": {
@@ -449,7 +449,7 @@
                 "native_description": "Enables cross-origin iframe rendering for leaderboard ads via CDN template",
                 "version": {
                     "fr": "1.2.86",
-                    "to": ""
+                    "to": "1.2.90"
                 }
             },
             "LyricsUpsell": {
@@ -512,7 +512,7 @@
                 "native_description": "Enables the Employee Flag to send to Sentry",
                 "version": {
                     "fr": "1.2.44",
-                    "to": ""
+                    "to": "1.2.93"
                 }
             },
             "HomeImpressions": {
@@ -557,7 +557,7 @@
                 "native_description": "Enable Canvas for ads",
                 "version": {
                     "fr": "1.2.52",
-                    "to": ""
+                    "to": "1.2.92"
                 }
             },
             "ConnectedStateObserver": {
@@ -656,7 +656,7 @@
                 "native_description": "Enable Hpto announcements on Home",
                 "version": {
                     "fr": "1.2.65",
-                    "to": ""
+                    "to": "1.2.94"
                 }
             },
             "SponsoredPlaylistV2": {
@@ -778,7 +778,7 @@
                 "name": "bypassApplyUpdateCheck",
                 "version": {
                     "fr": "1.2.84",
-                    "to": ""
+                    "to": "1.2.93"
                 }
             },
             "ad_feedback_in_stream": {
@@ -786,6 +786,30 @@
                 "description": "Enable new ad feedback UX for in-stream ads",
                 "version": {
                     "fr": "1.2.88",
+                    "to": ""
+                }
+            },
+            "ad_feedback_home_free": {
+                "name": "enable_ad_feedback_home_free",
+                "description": "Kill switch for ad feedback on home ad format for free users",
+                "version": {
+                    "fr": "1.2.93",
+                    "to": ""
+                }
+            },
+            "ad_feedback_home_premium": {
+                "name": "enable_ad_feedback_home_premium",
+                "description": "Kill switch for ad feedback on home ad format for premium users",
+                "version": {
+                    "fr": "1.2.93",
+                    "to": ""
+                }
+            },
+            "ad_feedback_milestone_3": {
+                "name": "enable_ad_feedback_milestone_3",
+                "description": "Enable ad feedback milestone 3 feature",
+                "version": {
+                    "fr": "1.2.93",
                     "to": ""
                 }
             },
@@ -802,6 +826,94 @@
                 "description": "Gates the report ad menu item in the ad overflow context menu",
                 "version": {
                     "fr": "1.2.89",
+                    "to": ""
+                }
+            },
+            "HptoLayoutRewrite": {
+                "name": "enableHptoLayoutRewrite",
+                "description": "Enable the new HomeAdCard flexbox layout rewrite",
+                "version": {
+                    "fr": "1.2.92",
+                    "to": ""
+                }
+            },
+            "EmbeddedAdHtmlDisplay": {
+                "name": "enableEmbeddedAdHtmlDisplay",
+                "description": "Enable HTML display ads in the embedded NPV",
+                "version": {
+                    "fr": "1.2.94",
+                    "to": ""
+                }
+            },
+            "ImageOptimizationSentrySpanMeasurement": {
+                "name": "enableImageOptimizationSentrySpanMeasurement",
+                "description": "Enable Sentry image resource span attributes for image optimization rollout measurement",
+                "version": {
+                    "fr": "1.2.94",
+                    "to": ""
+                }
+            },
+            "SentryReactRouterV6Routing": {
+                "name": "enableSentryReactRouterV6Routing",
+                "description": "Enable Sentry React Router v6 route instrumentation for Web Player SPA transactions",
+                "version": {
+                    "fr": "1.2.94",
+                    "to": ""
+                }
+            },
+            "SponsoredPlaylistHorizontalVideo": {
+                "name": "enableSponsoredPlaylistHorizontalVideo",
+                "description": "Enables horizontal video layout for sponsored playlist headers on desktop",
+                "version": {
+                    "fr": "1.2.95",
+                    "to": ""
+                }
+            },
+            "AdsSurfaceStateForAdOrchestration": {
+                "name": "useAdsSurfaceStateForAdOrchestration",
+                "description": "Use ads-owned NPV and cinema surface state for ad orchestration",
+                "version": {
+                    "fr": "1.2.96",
+                    "to": ""
+                }
+            },
+            "HptoHarmonyVideoPlayer": {
+                "name": "enableHptoHarmonyVideoPlayer",
+                "description": "Enable the Harmony-based video player for HPTO home video ads, replacing the Betamax player",
+                "version": {
+                    "fr": "1.2.96",
+                    "to": ""
+                }
+            },
+            "SidekickFeedbackBanner": {
+                "name": "enableSidekickFeedbackBanner",
+                "description": "Show the feedback banner in the Sidekick chat",
+                "version": {
+                    "fr": "1.2.96",
+                    "to": ""
+                }
+            },
+            "VideoAdTerminatedEvent": {
+                "name": "enableVideoAdTerminatedEvent",
+                "description": "Fire terminated events for non-complete video ad endings on desktop",
+                "version": {
+                    "fr": "1.2.98",
+                    "to": ""
+                }
+            },
+            "SponsoredPlaylistCacheAlignedRefresh": {
+                "name": "enableSponsoredPlaylistCacheAlignedRefresh",
+                "description": "Uses a 15-minute sponsored playlist refresh interval aligned with the service TTL",
+                "version": {
+                    "fr": "1.2.98",
+                    "to": ""
+                }
+            },
+            "AdBreakTimeRemaining": {
+                "name": "showAdBreakTimeRemaining",
+                "description": "Show remaining ad-break time countdown in NPV and cinema-mode ad headers",
+                "version": {
+                    "fr": "1.2.99",
                     "to": ""
                 }
             }
@@ -930,7 +1042,7 @@
                 "native_description": "Enable silence trimming in podcasts",
                 "version": {
                     "fr": "1.1.99",
-                    "to": ""
+                    "to": "1.2.93"
                 }
             },
             "PlaybackSpeedIncrements": {
@@ -1074,7 +1186,7 @@
                 "native_description": "Enable Smart Shuffle",
                 "version": {
                     "fr": "1.2.22",
-                    "to": ""
+                    "to": "1.2.96"
                 }
             },
             "ConcertsTicketPrice": {
@@ -1128,7 +1240,7 @@
                 "native_description": "Enable About Podcast section in  NPV",
                 "version": {
                     "fr": "1.2.20",
-                    "to": ""
+                    "to": "1.2.96"
                 }
             },
             "QueueOnRightPanel": {
@@ -1416,7 +1528,7 @@
                 "native_description": "Disable the Premium Only Modal",
                 "version": {
                     "fr": "1.2.39",
-                    "to": ""
+                    "to": "1.2.95"
                 }
             },
             "CenteredLayout": {
@@ -1497,7 +1609,7 @@
                 "native_description": "Enable the support for Nearby Jams feature in the Device Picker",
                 "version": {
                     "fr": "1.2.52",
-                    "to": ""
+                    "to": "1.2.97"
                 }
             },
             "TrackBans": {
@@ -1560,7 +1672,7 @@
                 "native_description": "Enable the Peek NPV feature",
                 "version": {
                     "fr": "1.2.53",
-                    "to": ""
+                    "to": "1.2.96"
                 }
             },
             "AlignedPanelHeaders": {
@@ -1623,7 +1735,7 @@
                 "native_description": "Enable canvas support inside improved cinema mode",
                 "version": {
                     "fr": "1.2.56",
-                    "to": ""
+                    "to": "1.2.96"
                 }
             },
             "YlxReverseSorting": {
@@ -1632,7 +1744,7 @@
                 "native_description": "Enable reverse sort direction in Your Library",
                 "version": {
                     "fr": "1.2.60",
-                    "to": ""
+                    "to": "1.2.94"
                 }
             },
             "BackendSearchHistory": {
@@ -1722,7 +1834,7 @@
                 "native_description": "Enable column reordering functionality in tracklists",
                 "version": {
                     "fr": "1.2.69",
-                    "to": ""
+                    "to": "1.2.96"
                 }
             },
             "ContextMenuShortcuts": {
@@ -1866,12 +1978,19 @@
                     "to": ""
                 }
             },
+            "MagpieAudiobookRows": {
+                "name": "enableMagpieAudiobookRows",
+                "version": {
+                    "fr": "1.2.92",
+                    "to": ""
+                }
+            },
             "PlaylistExtenderBpmKey": {
                 "name": "enablePlaylistExtenderBpmKey",
                 "native_description": "Enable BPM and key columns in playlist recommendations",
                 "version": {
                     "fr": "1.2.82",
-                    "to": ""
+                     "to": "1.2.94"
                 }
             },
             "ShareActionBarButton": {
@@ -1895,7 +2014,7 @@
                 "native_description": "Show video preference settings for users to control video playback types",
                 "version": {
                     "fr": "1.2.86",
-                    "to": ""
+                    "to": "1.2.95"
                 }
             },
             "VideoQualityEnabled": {
@@ -1927,6 +2046,70 @@
                 "native_description": "Show 'Make this a playlist' button when filtering Liked Songs by genre",
                 "version": {
                     "fr": "1.2.89",
+                    "to": ""
+                }
+            },
+            "UserTopTracks": {
+                "name": "enableUserTopTracks",
+                "native_description": "Enable User Top Tracks shelf on the profile page and the dedicated /top/tracks route. Disable via rollout to kill the feature ahead of any List Platform migration",
+                "version": {
+                    "fr": "1.2.90",
+                    "to": ""
+                }
+            },
+            "crossfade_enabled": {
+                "name": "crossfade_enabled",
+                "native_description": "When true, shows the Crossfade toggle in Advanced Playback settings. When false, the setting is hidden.",
+                "version": {
+                    "fr": "1.2.89",
+                    "to": ""
+                }
+            },
+            "LeaderboardEmptySlotHandling": {
+                "name": "enableLeaderboardEmptySlotHandling",
+                "native_description": "Config for clearing the current leaderboard ad and hiding the leaderboard container when the ad slot returns an empty response",
+                "version": {
+                    "fr": "1.2.94",
+                    "to": "1.2.97"
+                }
+            },
+            "EntityHeaderNew": {
+                "name": "enableEntityHeaderNew",
+                "native_description": "Enable the new entity header design",
+                "version": {
+                    "fr": "1.2.95",
+                    "to": ""
+                }
+            },
+            "ContextMenuLayoutV2": {
+                "name": "enableContextMenuLayoutV2",
+                "native_description": "Enables the Context Menu 2.0 layout",
+                "version": {
+                    "fr": "1.2.96",
+                    "to": ""
+                }
+            },
+            "CanvasContextMenuToggle": {
+                "name": "enableCanvasContextMenuToggle",
+                "native_description": "Enables the Canvas context menu toggle",
+                "version": {
+                    "fr": "1.2.96",
+                    "to": ""
+                }
+            },
+            "MusicVideos": {
+                "name": "enableMusicVideos",
+                "native_description": "Whether music videos are available for the current user. Override to true for supported products and markets",
+                "version": {
+                    "fr": "1.2.96",
+                    "to": ""
+                }
+            },
+            "VideoShelfPreviews": {
+                "name": "enableVideoShelfPreviews",
+                "native_description": "Enable video previews on hover in video shelf cards",
+                "version": {
+                    "fr": "1.2.96",
                     "to": ""
                 }
             }
@@ -2029,7 +2212,7 @@
                 "value": "CONTROL",
                 "version": {
                     "fr": "1.2.31",
-                    "to": ""
+                    "to": "1.2.93"
                 }
             },
             "CanvasNpv": {
@@ -2156,7 +2339,7 @@
             "block_slots": {
                 "version": {
                     "fr": "1.1.59",
-                    "to": ""
+                    "to": "1.2.93"
                 },
                 "add": "slot}(?=.{3,8}(override_url|queued_ads))",
                 "match": "slots(?=.{3,8}(override_url|queued_ads))",
@@ -2165,7 +2348,7 @@
             "block_slots_2": {
                 "version": {
                     "fr": "1.2.55",
-                    "to": ""
+                    "to": "1.2.93"
                 },
                 "add": "slot}(?=.{25,35}state)",
                 "match": "slots(?=.{25,35}state)",
@@ -2174,7 +2357,7 @@
             "block_slots_3": {
                 "version": {
                     "fr": "1.2.55",
-                    "to": ""
+                    "to": "1.2.93"
                 },
                 "add": "}(?=payload=)",
                 "match": "\\?(?=payload=)",
@@ -2464,14 +2647,14 @@
                 "to": ""
             },
             "match": [
-                "<li><a href=\"#[A-Za-z0-9]{5}\">zlib<\/a><\/li>\n(.|\n)*<\/p><!-- END CONTAINER DEPS LICENSES -->(<\/div>)",
-                "\t",
-                "  ",
-                "(?m)(^\\s*\r?\n)",
-                "\r?\n(?!\\(1|\\d)"
+                "(?s)<li><a href=\"#[A-Za-z0-9]{5}\">zlib<\/a><\/li>.*?<\/p><!-- END CONTAINER DEPS LICENSES -->(<\/div>)|(<p>Third-party licenses[^<]*Desktop UI code:<\/p>\\s*<ul\\b[^>]*>(?:\\s*<li><a href=\"[^\"]+\">.*?<\/a><\/li>){1,8}).*?(<\/ul>).*\\z|(<p>Third-party licenses[^<]*Desktop UI code:<\/p>)\\s*\\z",
+                "\t|\\z",
+                "  |\\z",
+                "(?m)(^\\s*\r?\n)|\\z",
+                "\r?\n(?!\\(1|\\d)|\\z"
             ],
             "replace": [
-                "$2",
+                "$1$2$3$4",
                 "",
                 "",
                 "",
@@ -2583,6 +2766,14 @@
             },
             "match": "(typeName\\])",
             "replace": "$1 || []"
+        },
+        "fixHomeV2EmptyResponseCheck": {
+            "version": {
+                "fr": "1.1.92",
+                "to": "1.2.44"
+            },
+            "match": "(\"HomeResponsePayload\"[\\s\\S]{0,500}?)0\\s*===\\s*([A-Za-z_$][\\w$]*)\\.sectionContainer\\.sections\\.totalCount\\s*\\|\\|\\s*0\\s*===\\s*\\2\\.sectionContainer\\.sections\\.items\\.length",
+            "replace": "$1!Array.isArray(null==$2||null==$2.sectionContainer||null==$2.sectionContainer.sections?void 0:$2.sectionContainer.sections.items)||0===$2.sectionContainer.sections.items.length"
         }
     },
     "VariousJs": {
