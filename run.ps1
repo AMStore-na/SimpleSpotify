@@ -2,7 +2,7 @@
 param
 (
     [Parameter(HelpMessage = 'Latest recommended Spotify version for Windows 10+.')]
-    [string]$latest_full = "1.2.90",
+    [string]$latest_full = "1.2.99",
 
     [Parameter(HelpMessage = 'Latest supported Spotify version for Windows 7-8.1')]
     [string]$last_win7_full = "1.2.5.1006.g22820f93",
@@ -26,6 +26,12 @@ param
     [Parameter(HelpMessage = 'Custom local path to patches.json')]
     [Alias('cp')]
     [string]$CustomPatchesPath,
+    
+    [Parameter(HelpMessage = 'Skip pause before exit')]
+    [switch]$no_pause,
+
+    [Parameter(HelpMessage = 'Skip Microsoft Defender exclusions')]
+    [switch]$defender_exclusions_off,
 
     [Parameter(HelpMessage = "Use github.io mirror instead of raw.githubusercontent.")]
     [Alias("m")]
@@ -455,7 +461,7 @@ function Resolve-SpotifyInstallerVersionFromManifest {
 $spotifyDownloadBaseUrl = "https://loadspot.amd64fox1.workers.dev/download"
 $spotifyTemporaryDownloadBaseUrl = "https://loadspot.amd64fox1.workers.dev/temporary-download"
 $spotifyTemporaryDownloadVersion = "1.2.86.502.g8cd7fb22"
-$spotifyVersionsManifestUrl = "https://raw.githubusercontent.com/LoaderSpot/table/refs/heads/main/table/versions.json"
+$spotifyVersionsManifestUrl = Get-Link -e "/table/versions.json" -Owner "LoaderSpot" -Repository "table"
 $systemArchitecture = Get-SystemArchitecture
 
 $match_v = "^(?<version>\d+\.\d+\.\d+(?:\.\d+(?:\.g[0-9a-f]{8})?)?)(?:-\d+)?$"
@@ -1360,6 +1366,225 @@ function DesktopFolder {
     }
     return $desktop_folder
 }
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+
+    try {
+        $principal = New-Object -TypeName Security.Principal.WindowsPrincipal -ArgumentList $identity
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+    finally {
+        $identity.Dispose()
+    }
+}
+
+function ConvertTo-DefenderExclusionPath {
+    param (
+        [string[]]$Path
+    )
+
+    $normalizedPaths = foreach ($item in $Path) {
+        if ([string]::IsNullOrWhiteSpace($item)) { continue }
+
+        try {
+            [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($item))
+        }
+        catch {
+            Write-Verbose "Invalid Microsoft Defender exclusion path: $item"
+        }
+    }
+
+    return @($normalizedPaths | Sort-Object -Unique)
+}
+
+function ConvertTo-PowerShellStringLiteral {
+    param (
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Value
+    )
+
+    if ($Value.IndexOf([char]34) -ge 0) {
+        throw 'Double quotes are not valid in Windows paths'
+    }
+
+    $escapedValue = [Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($Value)
+    return "'$escapedValue'"
+}
+
+function Add-SpotifyDefenderExclusions {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string[]]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$ProcessPath
+    )
+
+    [string[]]$paths = @(ConvertTo-DefenderExclusionPath -Path $Path)
+    [string[]]$processPaths = @(ConvertTo-DefenderExclusionPath -Path $ProcessPath)
+    if ($paths.Count -eq 0 -and $processPaths.Count -eq 0) { return }
+
+    $defenderPrompt = $lang.DefenderPrompt
+    $defenderAdded = $lang.DefenderAdded
+
+    try {
+        $isAdministrator = Test-IsAdministrator
+
+        if (-not $isAdministrator) {
+            do {
+                $defenderChoice = Read-Host -Prompt $defenderPrompt
+                Write-Host
+                if ($defenderChoice -notmatch '^y$|^n$') { incorrectValue }
+            }
+            while ($defenderChoice -notmatch '^y$|^n$')
+
+            if ($defenderChoice -eq 'n') { return }
+        }
+
+        if ($isAdministrator) {
+            $modulePath = [IO.Path]::Combine(
+                [Environment]::SystemDirectory,
+                'WindowsPowerShell\v1.0\Modules\Defender\Defender.psd1'
+            )
+            $null = Import-Module -Name $modulePath -Force -ErrorAction Stop
+            $preferences = Defender\Get-MpPreference -ErrorAction Stop
+            $currentPaths = @($preferences.ExclusionPath)
+            $currentProcessPaths = @($preferences.ExclusionProcess)
+            $missingPaths = @($paths | Where-Object { $_ -notin $currentPaths })
+            $missingProcessPaths = @($processPaths | Where-Object { $_ -notin $currentProcessPaths })
+
+            if ($missingPaths.Count -gt 0) {
+                $null = Defender\Add-MpPreference -ExclusionPath $missingPaths -Force -ErrorAction Stop
+            }
+            if ($missingProcessPaths.Count -gt 0) {
+                $null = Defender\Add-MpPreference -ExclusionProcess $missingProcessPaths -Force -ErrorAction Stop
+            }
+
+            $verified = $false
+            for ($attempt = 0; $attempt -lt 5; $attempt++) {
+                $updatedPreferences = Defender\Get-MpPreference -ErrorAction Stop
+                $updatedPaths = @($updatedPreferences.ExclusionPath)
+                $updatedProcessPaths = @($updatedPreferences.ExclusionProcess)
+                $remainingPaths = @($paths | Where-Object { $_ -notin $updatedPaths })
+                $remainingProcessPaths = @($processPaths | Where-Object { $_ -notin $updatedProcessPaths })
+                if ($remainingPaths.Count -eq 0 -and $remainingProcessPaths.Count -eq 0) {
+                    $verified = $true
+                    break
+                }
+                if ($attempt -lt 4) { Start-Sleep -Milliseconds 250 }
+            }
+            if (-not $verified) {
+                throw 'Microsoft Defender exclusion verification failed'
+            }
+
+            Write-Host $defenderAdded
+            Write-Host
+            return
+        }
+
+        $pathLiterals = @($paths | ForEach-Object {
+                ConvertTo-PowerShellStringLiteral -Value $_
+            }) -join ', '
+        $processPathLiterals = @($processPaths | ForEach-Object {
+                ConvertTo-PowerShellStringLiteral -Value $_
+            }) -join ', '
+        $command = @(
+            "`$ErrorActionPreference = 'Stop';"
+            'try {'
+            "[string[]]`$paths = @($pathLiterals);"
+            "[string[]]`$processPaths = @($processPathLiterals);"
+            "`$modulePath = [IO.Path]::Combine([Environment]::SystemDirectory, 'WindowsPowerShell\v1.0\Modules\Defender\Defender.psd1');"
+            '$null = Import-Module -Name $modulePath -Force -ErrorAction Stop;'
+            '$preferences = Defender\Get-MpPreference -ErrorAction Stop;'
+            '$currentPaths = @($preferences.ExclusionPath);'
+            '$currentProcessPaths = @($preferences.ExclusionProcess);'
+            '$missingPaths = @($paths | Where-Object { $_ -notin $currentPaths });'
+            '$missingProcessPaths = @($processPaths | Where-Object { $_ -notin $currentProcessPaths });'
+            'if ($missingPaths.Count -gt 0) { $null = Defender\Add-MpPreference -ExclusionPath $missingPaths -Force -ErrorAction Stop };'
+            'if ($missingProcessPaths.Count -gt 0) { $null = Defender\Add-MpPreference -ExclusionProcess $missingProcessPaths -Force -ErrorAction Stop };'
+            '$verified = $false;'
+            'for ($attempt = 0; $attempt -lt 5; $attempt++) {'
+            '$updatedPreferences = Defender\Get-MpPreference -ErrorAction Stop;'
+            '$updatedPaths = @($updatedPreferences.ExclusionPath);'
+            '$updatedProcessPaths = @($updatedPreferences.ExclusionProcess);'
+            '$remainingPaths = @($paths | Where-Object { $_ -notin $updatedPaths });'
+            '$remainingProcessPaths = @($processPaths | Where-Object { $_ -notin $updatedProcessPaths });'
+            'if ($remainingPaths.Count -eq 0 -and $remainingProcessPaths.Count -eq 0) { $verified = $true; break };'
+            'if ($attempt -lt 4) { Start-Sleep -Milliseconds 250 };'
+            '}'
+            "if (-not `$verified) { throw 'Microsoft Defender exclusion verification failed' };"
+            'exit 0'
+            '}'
+            'catch {'
+            'exit 1'
+            '}'
+        ) -join ' '
+
+        $systemDirectoryName = if (
+            [Environment]::Is64BitOperatingSystem -and
+            -not [Environment]::Is64BitProcess
+        ) {
+            'Sysnative'
+        }
+        else {
+            'System32'
+        }
+        $powerShellPath = Join-Path $env:SystemRoot "$systemDirectoryName\WindowsPowerShell\v1.0\powershell.exe"
+        $startProcessParams = @{
+            FilePath     = $powerShellPath
+            ArgumentList = "-NoLogo -NoProfile -Command `"$command`""
+            Verb          = 'RunAs'
+            WindowStyle   = 'Normal'
+            Wait          = $true
+            PassThru      = $true
+            ErrorAction   = 'Stop'
+        }
+
+        $process = Start-Process @startProcessParams
+        if ($process.ExitCode -ne 0) {
+            throw "Elevated Microsoft Defender command failed with exit code $($process.ExitCode)"
+        }
+        Write-Host $defenderAdded
+        Write-Host
+    }
+    catch {
+        Write-Warning $lang.DefenderFailed
+        Write-Verbose $_.Exception.Message
+        Write-Host
+    }
+}
+
+if (-not $defender_exclusions_off) {
+    try {
+        $desktopShortcut = Join-Path (DesktopFolder) 'Spotify.lnk'
+        $currentProcess = [Diagnostics.Process]::GetCurrentProcess()
+        try {
+            $defenderPowerShellProcess = $currentProcess.MainModule.FileName
+        }
+        finally {
+            $currentProcess.Dispose()
+        }
+        $defenderExclusionPaths = @(
+            $spotifyRoamingDirectory
+            $spotifyDirectory2
+            $spotifyExecutable
+            $spotifyDll
+            $chrome_elf
+            $xpui_spa_patch
+            $desktopShortcut
+            $start_menu
+        )
+        $null = Add-SpotifyDefenderExclusions `
+            -Path $defenderExclusionPaths `
+            -ProcessPath $defenderPowerShellProcess
+    }
+    catch {
+        Write-Warning $lang.DefenderFailed
+        Write-Verbose $_.Exception.Message
+        Write-Host
+    }
+}
 
 function Kill-Spotify {
     param (
@@ -1705,8 +1930,45 @@ if ($webjson -eq $null) {
     Stop-Script
 }
 
+function Get-JsonValue {
+    param (
+        [AllowNull()]
+        [object]$Object,
 
-function Helper($paramname) {
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
+function Test-PatchVersionMatch {
+    param (
+        [AllowNull()]
+        [object]$Patch,
+
+        [switch]$Translate
+    )
+
+    if ($null -eq $Patch) { return $false }
+    if ((Get-JsonValue -Object $Patch -Name 'disable') -eq $true) { return $false }
+    if ($Translate) { return $true }
+
+    $version = Get-JsonValue -Object $Patch -Name 'version'
+    $versionTo = Get-JsonValue -Object $version -Name 'to'
+    $versionFr = Get-JsonValue -Object $version -Name 'fr'
+    $offline_patch = $offline -replace '(\d+\.\d+\.\d+)(.\d+)', '$1'
+
+    if ($versionTo) { $to = [version]$versionTo -ge [version]$offline_patch } else { $to = $true }
+    if ($versionFr) { $fr = [version]$versionFr -le [version]$offline_patch } else { $fr = $false }
+
+    return $fr -and $to
+}
+
+function Helper($paramname, [switch]$CheckOnly) {
 
 
     function Remove-Json {
@@ -1744,27 +2006,12 @@ function Helper($paramname) {
             Remove-Json -j $to -p $propertyName
         }
     }
-        function Get-JsonValue {
-        param (
-            [AllowNull()]
-            [object]$Object,
-
-            [Parameter(Mandatory = $true)]
-            [string]$Name
-        )
-
-        if ($null -eq $Object) { return $null }
-        $property = $Object.PSObject.Properties[$Name]
-        if ($null -eq $property) { return $null }
-        return $property.Value
-    }
-
 
     switch ( $paramname ) {
-        "HtmlLicMin" { 
-            # licenses.html minification
+        "HtmlLicMin" {
+            # Licenses HTML minification
             $name = "patches.json.others."
-            $n = "licenses.html"
+            $n = $licensesFileName
             $contents = "htmlmin"
             $json = $webjson.others
         }
@@ -1785,10 +2032,11 @@ function Helper($paramname) {
             $contents = "minjson"
             $json = $webjson.others
         }
-        "FixCss" { 
+        "FixCss" {
             # Remove indent for old theme xpui.css
             $name = "patches.json.others."
             $n = "xpui.css"
+            $contents = "fix-old-theme"
             $json = $webjson.others
         }
         "Fixjs" { 
@@ -1812,14 +2060,16 @@ function Helper($paramname) {
         "Discriptions" {  
             # Add discriptions (xpui-desktop-modals.js)
 
-            $svg_tg = $webjson.others.discriptions.svgtg
-            $svg_git = $webjson.others.discriptions.svggit
-            $svg_faq = $webjson.others.discriptions.svgfaq
-            $replace = $webjson.others.discriptions.replace
+            if (!$CheckOnly) {
+                $svg_tg = $webjson.others.discriptions.svgtg
+                $svg_git = $webjson.others.discriptions.svggit
+                $svg_faq = $webjson.others.discriptions.svgfaq
+                $replace = $webjson.others.discriptions.replace
 
-            $replacedText = $replace -f $svg_git, $svg_tg, $svg_faq
+                $replacedText = $replace -f $svg_git, $svg_tg, $svg_faq
 
-            $webjson.others.discriptions.replace = '$1"' + $replacedText + '"})'
+                $webjson.others.discriptions.replace = '$1"' + $replacedText + '"})'
+            }
 
             $name = "patches.json.others."
             $n = "xpui-desktop-modals.js"
@@ -1833,7 +2083,15 @@ function Helper($paramname) {
             $contents = $webjson.free.psobject.properties.name
             $json = $webjson.free
         }
-        "ForcedExp" {  
+        "ForcedExp" {
+        # Forced disable some exp (xpui.js)
+            if ($CheckOnly) {
+                $name = "patches.json.others."
+                $n = "xpui.js"
+                $contents = "ForcedExp"
+                $json = $webjson.others
+                break
+            } 
             # Forced disable some exp (xpui.js)
             $offline_patch = $offline -replace '(\d+\.\d+\.\d+)(.\d+)', '$1'
             $Enable = $webjson.others.EnableExp
@@ -2004,7 +2262,14 @@ function Helper($paramname) {
             $contents = $webjsonru.psobject.properties.name
             $json = $webjsonru
         }
-        "Binary" { 
+        "Binary" {
+            if ($CheckOnly) {
+                $name = "patches.json.others.binary."
+                $n = "Spotify.exe"
+                $contents = $webjson.others.binary.psobject.properties.name
+                $json = $webjson.others.binary
+                break
+            }
 
             $binary = $webjson.others.binary
 
@@ -2024,15 +2289,29 @@ function Helper($paramname) {
             $contents = "collaboration"
             $json = $webjson.others
         }
-        "Dev" { 
+        "Dev" {
 
             $name = "patches.json.others."
             $n = "xpui-routes-desktop-settings.js"
             $contents = "dev-tools"
             $json = $webjson.others
 
-        }        
-        "VariousofXpui-js" { 
+        }
+        "HomeV2-js" {
+
+            $name = "patches.json.others."
+            $n = "home-v2.js"
+            $contents = "fixHomeV2EmptyResponseCheck"
+            $json = $webjson.others
+        }
+        "VariousofXpui-js" {
+            if ($CheckOnly) {
+                $name = "patches.json.VariousJs."
+                $n = "xpui.js"
+                $contents = $webjson.VariousJs.psobject.properties.name
+                $json = $webjson.VariousJs
+                break
+            }
 
             $VarJs = $webjson.VariousJs
 
@@ -2107,35 +2386,31 @@ function Helper($paramname) {
     }
     $paramdata = $xpui
     $novariable = "Didn't find variable "
-    $offline_patch = $offline -replace '(\d+\.\d+\.\d+)(.\d+)', '$1'
 
-    $contents | foreach {
+    foreach ($contentName in @($contents)) {
+        if ([string]::IsNullOrEmpty($contentName)) {
+            continue
+        }
 
-        $contentName = $PSItem
         $contentPatch = Get-JsonValue -Object $json -Name $contentName
         if ($null -eq $contentPatch) {
-            return
+            continue
         }
 
         if ((Get-JsonValue -Object $contentPatch -Name 'disable') -eq $true) {
-            return
+            continue
         }
 
-        $version = Get-JsonValue -Object $contentPatch -Name 'version'
-        $versionTo = Get-JsonValue -Object $version -Name 'to'
-        $versionFr = Get-JsonValue -Object $version -Name 'fr'
+        $translate = $paramname -eq "RuTranslate"
+        $checkVer = Test-PatchVersionMatch -Patch $contentPatch -Translate:$translate
 
-        if ($versionTo) { $to = [version]$versionTo -ge [version]$offline_patch } else { $to = $true }
-        if ($versionFr) { $fr = [version]$versionFr -le [version]$offline_patch } else { $fr = $false }
-
-        $checkVer = $fr -and $to; $translate = $paramname -eq "RuTranslate"
-
-        if ($checkVer -or $translate) {
+        if ($checkVer) {
+            if ($CheckOnly) { return $true }
 
             $matchValue = Get-JsonValue -Object $contentPatch -Name 'match'
             $replaceValue = Get-JsonValue -Object $contentPatch -Name 'replace'
             if ($null -eq $matchValue -or $null -eq $replaceValue) {
-                return
+                continue
             }
 
             $matchPatterns = @($matchValue)
@@ -2175,6 +2450,7 @@ function Helper($paramname) {
             }
         }
     }
+    if ($CheckOnly) { return $false }
     $paramdata
 }
 
@@ -2182,6 +2458,7 @@ function extract ($counts, $method, $name, $helper, $add, $patch) {
     $zip = $null
     $reader = $null
     $writer = $null
+    if ($helper -and $null -eq $add -and !(Helper -paramname $helper -CheckOnly)) { return }
 
     try {
         switch ( $counts ) {
@@ -2191,7 +2468,10 @@ function extract ($counts, $method, $name, $helper, $add, $patch) {
                     $xpui_spa_patch = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.spa'
                     $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update')
                     $file = $zip.GetEntry($name)
-                    if ($null -eq $file) { throw "Archive entry not found: $name" }
+                    if ($null -eq $file) {
+                        Write-Warning "Error: Archive entry not found: $name"
+                        return
+                    }
                     $reader = New-Object System.IO.StreamReader($file.Open())
                 }
                 elseif ($method -eq "nonezip") {
@@ -2219,7 +2499,7 @@ function extract ($counts, $method, $name, $helper, $add, $patch) {
                 Add-Type -Assembly 'System.IO.Compression.FileSystem'
                 $xpui_spa_patch = Join-Path (Join-Path $spotifyDirectory 'Apps') 'xpui.spa'
                 $zip = [System.IO.Compression.ZipFile]::Open($xpui_spa_patch, 'update')
-                $entries = @($zip.Entries | Where-Object { $_.FullName -like $name -and $_.FullName.Split('/') -notcontains 'spotx-helper' })
+                $entries = @($zip.Entries | Where-Object { $_.FullName -like $name -and $_.FullName.Split('/') -notcontains 'aimods-helper' })
 
                 foreach ($entry in $entries) {
                     $reader = New-Object System.IO.StreamReader($entry.Open())
@@ -2436,44 +2716,78 @@ function Extract-WebpackModules {
     return $decodedString
 }
 
-function Reset-Dll-Sign {
-    [CmdletBinding()]
-    param (
-        [string]$FilePath
-    )
-
-    $TargetStringText = "Check failed: sep_pos != std::wstring::npos."
-
-    $Patch_x64 = "B8 01 00 00 00 C3"
-
-    $Patch_ARM64 = "20 00 80 52 C0 03 5F D6"
-
-    $Patch_x64 = [byte[]]($Patch_x64 -split ' ' | ForEach-Object { [Convert]::ToByte($_, 16) })
-    $Patch_ARM64 = [byte[]]($Patch_ARM64 -split ' ' | ForEach-Object { [Convert]::ToByte($_, 16) })
+function Initialize-BinaryScanner {
+    if (([System.Management.Automation.PSTypeName]'BinaryScannerV3').Type) {
+        return
+    }
 
     $csharpCode = @"
 using System;
 using System.Collections.Generic;
 
-public class ScannerCore {
-    public static int FindBytes(byte[] data, byte[] pattern) {
-        for (int i = 0; i < data.Length - pattern.Length; i++) {
-            bool match = true;
-            for (int j = 0; j < pattern.Length; j++) {
-                if (data[i + j] != pattern[j]) { match = false; break; }
+// Bump the type name when the scanner API changes
+public static class BinaryScannerV3 {
+    public static int FindBytes(byte[] data, byte[] pattern, int start) {
+        if (data == null || pattern == null || pattern.Length == 0) return -1;
+        if (start < 0) start = 0;
+        for (int i = start; i <= data.Length - pattern.Length; i++) {
+            if (data[i] != pattern[0]) continue;
+            bool matched = true;
+            for (int j = 1; j < pattern.Length; j++) {
+                if (data[i + j] != pattern[j]) {
+                    matched = false;
+                    break;
+                }
             }
-            if (match) return i;
+            if (matched) return i;
         }
         return -1;
     }
 
-    public static List<int> FindXref_ARM64(byte[] data, ulong stringRVA, ulong sectionRVA, uint sectionRawPtr, uint sectionSize) {
+    public static bool MatchBytes(byte[] data, int offset, byte[] pattern) {
+        if (data == null || pattern == null || pattern.Length == 0) return false;
+        if (offset < 0 || offset > data.Length - pattern.Length) return false;
+        for (int i = 0; i < pattern.Length; i++) {
+            if (data[offset + i] != pattern[i]) return false;
+        }
+        return true;
+    }
+
+    public static int FindMaskedBytes(byte[] data, byte[] pattern, byte[] mask, int start, int length) {
+        if (data == null || pattern == null || mask == null || pattern.Length == 0 || pattern.Length != mask.Length) return -1;
+        if (start < 0) start = 0;
+        if (start >= data.Length || length <= 0) return -1;
+        int end = (int)Math.Min(data.Length, (long)start + length);
+        int limit = end - pattern.Length;
+        for (int i = start; i <= limit; i++) {
+            bool matched = true;
+            for (int j = 0; j < pattern.Length; j++) {
+                if (mask[j] != 0 && data[i + j] != pattern[j]) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) return i;
+        }
+        return -1;
+    }
+
+    public static bool MatchMaskedBytes(byte[] data, int offset, byte[] pattern, byte[] mask) {
+        if (data == null || pattern == null || mask == null || pattern.Length == 0 || pattern.Length != mask.Length) return false;
+        if (offset < 0 || offset > data.Length - pattern.Length) return false;
+        for (int i = 0; i < pattern.Length; i++) {
+            if (mask[i] != 0 && data[offset + i] != pattern[i]) return false;
+        }
+        return true;
+    }
+
+    public static List<int> FindXrefArm64(byte[] data, ulong stringRVA, ulong sectionRVA, uint sectionRawPtr, uint sectionSize) {
         List<int> results = new List<int>();
         for (uint i = 0; i < sectionSize; i += 4) {
-            uint fileOffset = sectionRawPtr + i;
-            if (fileOffset + 8 > data.Length) break;
+            ulong fileOffset = (ulong)sectionRawPtr + i;
+            if ((ulong)i + 8 > sectionSize || fileOffset + 8 > (ulong)data.Length) break;
             uint inst1 = BitConverter.ToUInt32(data, (int)fileOffset);
-            
+
             // ADRP
             if ((inst1 & 0x9F000000) == 0x90000000) {
                 int rd = (int)(inst1 & 0x1F);
@@ -2481,14 +2795,14 @@ public class ScannerCore {
                 long immHi = (inst1 >> 5) & 0x7FFFF;
                 long imm = (immHi << 2) | immLo;
                 if ((imm & 0x100000) != 0) { imm |= unchecked((long)0xFFFFFFFFFFE00000); }
-                imm = imm << 12; 
+                imm = imm << 12;
                 ulong pc = sectionRVA + i;
-                ulong pcPage = pc & 0xFFFFFFFFFFFFF000; 
+                ulong pcPage = pc & 0xFFFFFFFFFFFFF000;
                 ulong page = (ulong)((long)pcPage + imm);
 
                 uint inst2 = BitConverter.ToUInt32(data, (int)fileOffset + 4);
                 // ADD
-                if ((inst2 & 0xFF800000) == 0x91000000) {
+                if ((inst2 & 0xFFC00000) == 0x91000000) {
                     int rn = (int)((inst2 >> 5) & 0x1F);
                     if (rn == rd) {
                         long imm12 = (inst2 >> 10) & 0xFFF;
@@ -2501,168 +2815,1955 @@ public class ScannerCore {
         return results;
     }
 
-    public static int FindStart(byte[] data, int startOffset, bool isArm) {
-        int step = isArm ? 4 : 1;
-        if (isArm && (startOffset % 4 != 0)) { startOffset -= (startOffset % 4); }
-
-        for (int i = startOffset; i > 0; i -= step) {
-            if (isArm) {
-                if (i < 4) break;
-                uint currInst = BitConverter.ToUInt32(data, i);
-                // ARM64 Prologue: STP X29, X30, [SP, -imm]! -> FD 7B .. A9
-                if ((currInst & 0xFF00FFFF) == 0xA9007BFD) { return i; }
-            } else {
-                // x64: Look for at least 2 bytes of padding (CC or 90) followed by a valid function start
-                if (i >= 2) {
-                    if ((data[i-1] == 0xCC && data[i-2] == 0xCC) || (data[i-1] == 0x90 && data[i-2] == 0x90)) {
-                        if (data[i] != 0xCC && data[i] != 0x90) {
-                            // Check for common function start bytes:
-                            // 0x48 (REX.W), 0x40 (REX), 0x55 (push rbp), 0x53-0x57 (push reg)
-                            byte b = data[i];
-                            if (b == 0x48 || b == 0x40 || b == 0x55 || (b >= 0x53 && b <= 0x57)) {
-                                return i;
-                            }
-                        }
-                    }
-                }
-            }
-            if (startOffset - i > 20000) break; 
+    public static int[] FindRipLeaRefs(byte[] bytes, int start, int length, long targetRva, int[] rawPtrs, int[] rawSizes, int[] virtualAddresses) {
+        var result = new List<int>();
+        if (bytes == null || rawPtrs == null || rawSizes == null || virtualAddresses == null) return result.ToArray();
+        if (rawPtrs.Length != rawSizes.Length || rawPtrs.Length != virtualAddresses.Length) return result.ToArray();
+        if (start < 0) start = 0;
+        int end = (int)Math.Min(bytes.Length, (long)start + length);
+        for (int p = start; p + 7 <= end; p++) {
+            if ((bytes[p] & 0xF8) != 0x48 || bytes[p + 1] != 0x8D) continue;
+            if ((bytes[p + 2] & 0xC7) != 0x05) continue;
+            long nextRva = OffsetToRva(p + 7, rawPtrs, rawSizes, virtualAddresses);
+            if (nextRva < 0) continue;
+            int disp = BitConverter.ToInt32(bytes, p + 3);
+            if (nextRva + disp == targetRva) result.Add(p);
         }
-        return 0;
+        return result.ToArray();
+    }
+
+    public static int[] FindCrossfadeGateCallsToRva(byte[] bytes, int start, int length, long targetRva, int[] rawPtrs, int[] rawSizes, int[] virtualAddresses) {
+        var result = new List<int>();
+        if (bytes == null || rawPtrs == null || rawSizes == null || virtualAddresses == null) return result.ToArray();
+        if (rawPtrs.Length != rawSizes.Length || rawPtrs.Length != virtualAddresses.Length) return result.ToArray();
+        if (start < 0) start = 0;
+        int end = (int)Math.Min(bytes.Length, (long)start + length);
+        for (int p = start; p + 6 <= end; p++) {
+            if (bytes[p] != 0xE8) continue;
+            long nextRva = OffsetToRva(p + 5, rawPtrs, rawSizes, virtualAddresses);
+            if (nextRva < 0) continue;
+            int disp = BitConverter.ToInt32(bytes, p + 1);
+            if (nextRva + disp == targetRva && bytes[p + 5] == 0x88) {
+                result.Add(p);
+            }
+        }
+        return result.ToArray();
+    }
+
+    public static long[] FindFunctionRange(byte[] bytes, int runtimeFunctionsRawPtr, int runtimeFunctionsRawSize, long rva, long codeRva, long codeSize) {
+        if (bytes == null || runtimeFunctionsRawPtr < 0 || runtimeFunctionsRawSize <= 0 || codeSize <= 0) return Array.Empty<long>();
+        long runtimeFunctionsEnd = Math.Min(bytes.Length, (long)runtimeFunctionsRawPtr + runtimeFunctionsRawSize);
+        long codeEnd = codeRva + codeSize;
+        long bestBegin = -1;
+        long bestFinish = -1;
+        for (int p = runtimeFunctionsRawPtr; (long)p + 12 <= runtimeFunctionsEnd; p += 12) {
+            long begin = BitConverter.ToUInt32(bytes, p);
+            long finish = BitConverter.ToUInt32(bytes, p + 4);
+            if (begin < codeRva || finish <= begin || finish > codeEnd || rva < begin || rva >= finish) continue;
+            if (bestBegin < 0 || begin > bestBegin || (begin == bestBegin && finish < bestFinish)) {
+                bestBegin = begin;
+                bestFinish = finish;
+            }
+        }
+        return bestBegin < 0 ? Array.Empty<long>() : new long[] { bestBegin, bestFinish };
+    }
+
+    public static long[] FindArm64FunctionRange(byte[] bytes, int runtimeFunctionsRawPtr, int runtimeFunctionsRawSize, long rva, long codeRva, long codeSize, int[] rawPtrs, int[] rawSizes, int[] virtualAddresses) {
+        if (bytes == null || rawPtrs == null || rawSizes == null || virtualAddresses == null) return Array.Empty<long>();
+        if (rawPtrs.Length != rawSizes.Length || rawPtrs.Length != virtualAddresses.Length) return Array.Empty<long>();
+        if (runtimeFunctionsRawPtr < 0 || runtimeFunctionsRawSize <= 0 || codeSize <= 0) return Array.Empty<long>();
+        long runtimeFunctionsEnd = Math.Min(bytes.Length, (long)runtimeFunctionsRawPtr + runtimeFunctionsRawSize);
+        long codeEnd = codeRva + codeSize;
+        long bestBegin = -1;
+        long bestFinish = -1;
+        for (int p = runtimeFunctionsRawPtr; (long)p + 8 <= runtimeFunctionsEnd; p += 8) {
+            long begin = BitConverter.ToUInt32(bytes, p);
+            uint unwind = BitConverter.ToUInt32(bytes, p + 4);
+            if (begin < codeRva || begin >= codeEnd || unwind == 0) continue;
+
+            long length;
+            uint flag = unwind & 3;
+            if (flag == 1 || flag == 2) {
+                length = ((unwind >> 2) & 0x7FF) * 4L;
+            } else if (flag == 0) {
+                int unwindOffset = RvaToOffset(unwind, rawPtrs, rawSizes, virtualAddresses);
+                if (unwindOffset < 0 || unwindOffset > bytes.Length - 4) continue;
+                uint header = BitConverter.ToUInt32(bytes, unwindOffset);
+                if (((header >> 18) & 3) != 0) continue;
+                length = (header & 0x3FFFF) * 4L;
+            } else {
+                continue;
+            }
+
+            long finish = begin + length;
+            if (length <= 0 || finish > codeEnd || rva < begin || rva >= finish) continue;
+            if (bestBegin < 0 || begin > bestBegin || (begin == bestBegin && finish < bestFinish)) {
+                bestBegin = begin;
+                bestFinish = finish;
+            }
+        }
+        return bestBegin < 0 ? Array.Empty<long>() : new long[] { bestBegin, bestFinish };
+    }
+
+    public static int[] FindArm64BlockSlotsCallers(byte[] bytes, int start, int length, uint enumValue) {
+        var result = new List<int>();
+        if (bytes == null || enumValue > 0xFFFF) return result.ToArray();
+        if (start < 0) start = 0;
+        int end = (int)Math.Min(bytes.Length, (long)start + length);
+        uint movEnum = 0x52800001 | (enumValue << 5);
+        for (int p = start; p + 12 <= end; p += 4) {
+            uint call = BitConverter.ToUInt32(bytes, p);
+            uint branch = BitConverter.ToUInt32(bytes, p + 4);
+            uint loadEnum = BitConverter.ToUInt32(bytes, p + 8);
+            if ((call & 0xFC000000) != 0x94000000) continue;
+            if ((branch & 0xFFF8001F) != 0x37000000) continue;
+            if (loadEnum == movEnum) result.Add(p);
+        }
+        return result.ToArray();
+    }
+
+    private static long OffsetToRva(int offset, int[] rawPtrs, int[] rawSizes, int[] virtualAddresses) {
+        for (int i = 0; i < rawPtrs.Length; i++) {
+            if (offset >= rawPtrs[i] && offset < rawPtrs[i] + rawSizes[i]) {
+                return (long)virtualAddresses[i] + (offset - rawPtrs[i]);
+            }
+        }
+        return -1;
+    }
+
+    private static int RvaToOffset(long rva, int[] rawPtrs, int[] rawSizes, int[] virtualAddresses) {
+        for (int i = 0; i < rawPtrs.Length; i++) {
+            long relative = rva - virtualAddresses[i];
+            if (relative >= 0 && relative < rawSizes[i]) {
+                return rawPtrs[i] + (int)relative;
+            }
+        }
+        return -1;
     }
 }
 "@
 
-    if (-not ([System.Management.Automation.PSTypeName]'ScannerCore').Type) {
-        Add-Type -TypeDefinition $csharpCode
-    }
-    
-    Write-Verbose "Loading file: $FilePath"
-    if (-not (Test-Path $FilePath)) { 
-        Write-Warning "File Spotify.dll not found"
-        Stop-Script
-    }
-    $bytes = [System.IO.File]::ReadAllBytes($FilePath)
-
     try {
-        $e_lfanew = [BitConverter]::ToInt32($bytes, 0x3C)
-        $Machine = [BitConverter]::ToUInt16($bytes, $e_lfanew + 4)
-        $IsArm64 = $false
-        $ArchName = "Unknown"
-        
-        if ($Machine -eq 0x8664) { $ArchName = "x64"; $IsArm64 = $false }
-        elseif ($Machine -eq 0xAA64) { $ArchName = "ARM64"; $IsArm64 = $true }
-        else { 
-            Write-Warning "Architecture not supported for patching Spotify.dll"
-            Stop-Script
-        }
-
-        Write-Verbose "Architecture: $ArchName"
-
-        $NumberOfSections = [BitConverter]::ToUInt16($bytes, $e_lfanew + 0x06)
-        $SizeOfOptionalHeader = [BitConverter]::ToUInt16($bytes, $e_lfanew + 0x14)
-        $SectionTableStart = $e_lfanew + 0x18 + $SizeOfOptionalHeader
-        
-        $Sections = @(); $CodeSection = $null
-        for ($i = 0; $i -lt $NumberOfSections; $i++) {
-            $secEntry = $SectionTableStart + ($i * 40)
-            $VA = [BitConverter]::ToUInt32($bytes, $secEntry + 12)
-            $RawSize = [BitConverter]::ToUInt32($bytes, $secEntry + 16)
-            $RawPtr = [BitConverter]::ToUInt32($bytes, $secEntry + 20)
-            $Chars = [BitConverter]::ToUInt32($bytes, $secEntry + 36)
-            $SecObj = [PSCustomObject]@{ VA = $VA; RawPtr = $RawPtr; RawSize = $RawSize }
-            $Sections += $SecObj
-            if (($Chars -band 0x20) -ne 0 -and $CodeSection -eq $null) { $CodeSection = $SecObj }
-        }
+        Add-Type -TypeDefinition $csharpCode -ErrorAction Stop
     }
-    catch { 
-        Write-Warning "PE Error in Spotify.dll"
-        Stop-Script
+    catch {
+        $compilerError = $_.Exception.Message -split '\r?\n' | Select-Object -First 1
+        throw "BinaryScanner initialization failed: $compilerError"
     }
 
-    function Get-RVA($FileOffset) {
-        foreach ($sec in $Sections) {
-            if ($FileOffset -ge $sec.RawPtr -and $FileOffset -lt ($sec.RawPtr + $sec.RawSize)) {
-                return ($FileOffset - $sec.RawPtr) + $sec.VA
-            }
-        }
-        return 0
-    }
-
-    Write-Verbose "Searching for function..."
-    $StringBytes = [System.Text.Encoding]::ASCII.GetBytes($TargetStringText)
-    $StringOffset = [ScannerCore]::FindBytes($bytes, $StringBytes)
-    if ($StringOffset -eq -1) { 
-        Write-Warning "String not found in Spotify.dll"
-        Stop-Script
-    }
-    $StringRVA = Get-RVA $StringOffset
-
-    $PatchOffset = 0
-    if (-not $IsArm64) {
-        $RawStart = $CodeSection.RawPtr; $RawEnd = $RawStart + $CodeSection.RawSize
-        for ($i = $RawStart; $i -lt $RawEnd; $i++) {
-            if ($bytes[$i] -eq 0x48 -and $bytes[$i + 1] -eq 0x8D -and $bytes[$i + 2] -eq 0x15) {
-                $Rel = [BitConverter]::ToInt32($bytes, $i + 3)
-                $Target = (Get-RVA $i) + 7 + $Rel
-                if ($Target -eq $StringRVA) {
-                    $PatchOffset = [ScannerCore]::FindStart($bytes, $i, $false)
-                    if ($PatchOffset -gt 0) { break }
-                }
-            }
-        }
-    }
-    else {
-        $Results = [ScannerCore]::FindXref_ARM64($bytes, [uint64]$StringRVA, [uint64]$CodeSection.VA, [uint32]$CodeSection.RawPtr, [uint32]$CodeSection.RawSize)
-        if ($Results.Count -gt 0) {
-            $PatchOffset = [ScannerCore]::FindStart($bytes, $Results[0], $true)
-        }
-    }
-
-    if ($PatchOffset -eq 0) { 
-        Write-Warning "Function not found in Spotify.dll"
-        Stop-Script
-    }
-
-    $BytesToWrite = if ($IsArm64) { $Patch_ARM64 } else { $Patch_x64 }
-
-    $CurrentBytes = @(); for ($i = 0; $i -lt $BytesToWrite.Length; $i++) { $CurrentBytes += $bytes[$PatchOffset + $i] }
-    $FoundHex = ($CurrentBytes | ForEach-Object { $_.ToString("X2") }) -join " "
-    Write-Verbose "Found (Offset: 0x$($PatchOffset.ToString("X"))): $FoundHex"
-
-    if ($CurrentBytes[0] -eq $BytesToWrite[0] -and $CurrentBytes[$BytesToWrite.Length - 1] -eq $BytesToWrite[$BytesToWrite.Length - 1]) {
-        Write-Warning "File Spotify.dll already patched"
-        return
-    }
-
-    Write-Verbose "Applying patch..."
-    for ($i = 0; $i -lt $BytesToWrite.Length; $i++) { $bytes[$PatchOffset + $i] = $BytesToWrite[$i] }
-
-    try {
-        [System.IO.File]::WriteAllBytes($FilePath, $bytes)
-        Write-Verbose "Success"
-    }
-    catch { 
-        Write-Warning "Write error in Spotify.dll $($_.Exception.Message)" 
-        Stop-Script
+    if (-not ([System.Management.Automation.PSTypeName]'BinaryScannerV3').Type) {
+        throw "BinaryScanner initialization failed: Type was not loaded"
     }
 }
 
+function Convert-HexStringToBytes {
+    param([string]$HexString)
+
+    return [byte[]]($HexString -split '\s+' | Where-Object { $_ } | ForEach-Object { [Convert]::ToByte($_, 16) })
+}
+
+function Read-PEUInt16([byte[]]$Bytes, [int]$Offset) { [BitConverter]::ToUInt16($Bytes, $Offset) }
+function Read-PEUInt32([byte[]]$Bytes, [int]$Offset) { [BitConverter]::ToUInt32($Bytes, $Offset) }
+function Read-PEUInt64([byte[]]$Bytes, [int]$Offset) { [BitConverter]::ToUInt64($Bytes, $Offset) }
+
 function Get-PEArchitectureOffsets {
-    param(
-        [byte[]]$bytes,
-        [int]$fileHeaderOffset
-    )
-    $machineType = [System.BitConverter]::ToUInt16($bytes, $fileHeaderOffset)
-    $result = @{ Architecture = $null; DataDirectoryOffset = 0 }
-    switch ($machineType) {
+    param([UInt16]$MachineType)
+
+    $result = @{ Architecture = $null; DataDirectoryOffset = $null }
+    switch ($MachineType) {
         0x8664 { $result.Architecture = 'x64'; $result.DataDirectoryOffset = 112 }
         0xAA64 { $result.Architecture = 'ARM64'; $result.DataDirectoryOffset = 112 }
         0x014c { $result.Architecture = 'x86'; $result.DataDirectoryOffset = 96 }
         default { $result.Architecture = 'Unknown'; $result.DataDirectoryOffset = $null }
     }
-    $result.MachineType = $machineType
+    $result.MachineType = $MachineType
     return $result
+}
+
+function Get-PEFileInfo {
+    param([byte[]]$Bytes)
+
+    $peHeaderOffset = [int](Read-PEUInt32 $Bytes 0x3C)
+    if ($Bytes[$peHeaderOffset] -ne 0x50 -or $Bytes[$peHeaderOffset + 1] -ne 0x45) {
+        throw 'Invalid PE file'
+    }
+
+    $fileHeaderOffset = $peHeaderOffset + 4
+    $optionalHeaderOffset = $fileHeaderOffset + 20
+    $machineType = Read-PEUInt16 $Bytes $fileHeaderOffset
+    $archInfo = Get-PEArchitectureOffsets -MachineType $machineType
+    $optionalHeaderMagic = Read-PEUInt16 $Bytes $optionalHeaderOffset
+
+    if ($optionalHeaderMagic -eq 0x20b) {
+        $imageBase = [int64](Read-PEUInt64 $Bytes ($optionalHeaderOffset + 24))
+    }
+    elseif ($optionalHeaderMagic -eq 0x10b) {
+        $imageBase = [int64](Read-PEUInt32 $Bytes ($optionalHeaderOffset + 28))
+    }
+    else {
+        throw 'Unsupported optional header format'
+    }
+
+    $numberOfSections = [int](Read-PEUInt16 $Bytes ($fileHeaderOffset + 2))
+    $optionalHeaderSize = [int](Read-PEUInt16 $Bytes ($fileHeaderOffset + 16))
+    $sectionTableStart = $optionalHeaderOffset + $optionalHeaderSize
+    $exceptionDirectoryRva = [int64]0
+    $exceptionDirectorySize = [int64]0
+    if ($null -ne $archInfo.DataDirectoryOffset -and ($archInfo.DataDirectoryOffset + 32) -le $optionalHeaderSize) {
+        $dataDirectoryStart = $optionalHeaderOffset + $archInfo.DataDirectoryOffset
+        $exceptionDirectoryRva = [int64](Read-PEUInt32 $Bytes ($dataDirectoryStart + 24))
+        $exceptionDirectorySize = [int64](Read-PEUInt32 $Bytes ($dataDirectoryStart + 28))
+    }
+    $sections = @()
+    $codeSection = $null
+
+    for ($i = 0; $i -lt $numberOfSections; $i++) {
+        $sectionOffset = $sectionTableStart + ($i * 40)
+        $nameBytes = $Bytes[$sectionOffset..($sectionOffset + 7)]
+        $name = ([Text.Encoding]::ASCII.GetString($nameBytes) -replace "`0.*$", '')
+        $characteristics = Read-PEUInt32 $Bytes ($sectionOffset + 36)
+        $section = [PSCustomObject]@{
+            Name           = $name
+            VirtualSize    = [int64](Read-PEUInt32 $Bytes ($sectionOffset + 8))
+            VirtualAddress = [int64](Read-PEUInt32 $Bytes ($sectionOffset + 12))
+            RawSize        = [int64](Read-PEUInt32 $Bytes ($sectionOffset + 16))
+            RawPtr         = [int64](Read-PEUInt32 $Bytes ($sectionOffset + 20))
+            Characteristics = $characteristics
+        }
+        $sections += $section
+        if (($characteristics -band 0x20) -ne 0 -and $null -eq $codeSection) {
+            $codeSection = $section
+        }
+    }
+
+    $exceptionTable = $null
+    foreach ($section in $sections) {
+        $sectionSpan = [Math]::Max([int64]$section.VirtualSize, [int64]$section.RawSize)
+        if ($exceptionDirectoryRva -lt $section.VirtualAddress -or
+            $exceptionDirectoryRva -ge ($section.VirtualAddress + $sectionSpan)) {
+            continue
+        }
+
+        $relativeOffset = $exceptionDirectoryRva - $section.VirtualAddress
+        if ($relativeOffset -lt 0 -or
+            ($relativeOffset + $exceptionDirectorySize) -gt $section.RawSize -or
+            ($section.RawPtr + $relativeOffset + $exceptionDirectorySize) -gt $Bytes.Length) {
+            break
+        }
+        $exceptionTable = [PSCustomObject]@{
+            Rva     = $exceptionDirectoryRva
+            RawPtr  = [int64]$section.RawPtr + $relativeOffset
+            RawSize = $exceptionDirectorySize
+        }
+        break
+    }
+
+    return [PSCustomObject]@{
+        PeHeaderOffset      = $peHeaderOffset
+        FileHeaderOffset    = $fileHeaderOffset
+        OptionalHeaderOffset = $optionalHeaderOffset
+        MachineType         = $machineType
+        Architecture        = $archInfo.Architecture
+        DataDirectoryOffset = $archInfo.DataDirectoryOffset
+        ImageBase           = $imageBase
+        Sections            = $sections
+        CodeSection         = $codeSection
+        ExceptionTable      = $exceptionTable
+    }
+}
+
+function Get-PERvaFromOffset {
+    param(
+        [object[]]$Sections,
+        [int64]$Offset
+    )
+
+    foreach ($section in $Sections) {
+        if ($Offset -ge $section.RawPtr -and $Offset -lt ($section.RawPtr + $section.RawSize)) {
+            return [int64]$section.VirtualAddress + ($Offset - $section.RawPtr)
+        }
+    }
+    return $null
+}
+
+function Get-PEOffsetFromRva {
+    param(
+        [object[]]$Sections,
+        [int64]$Rva
+    )
+
+    foreach ($section in $Sections) {
+        $sectionSpan = [Math]::Max([int64]$section.VirtualSize, [int64]$section.RawSize)
+        if ($Rva -lt $section.VirtualAddress -or $Rva -ge ($section.VirtualAddress + $sectionSpan)) {
+            continue
+        }
+
+        $relativeOffset = $Rva - $section.VirtualAddress
+        if ($relativeOffset -ge $section.RawSize) {
+            return $null
+        }
+        return [int64]$section.RawPtr + $relativeOffset
+    }
+    return $null
+}
+
+function Get-BinaryPatchContext {
+    param(
+        [object]$PeInfo
+    )
+
+    $text = $PeInfo.CodeSection
+    $runtimeFunctions = $PeInfo.ExceptionTable
+    if (-not $text -or -not $runtimeFunctions) {
+        throw 'Required PE code or exception data was not found'
+    }
+    $runtimeFunctionSize = if ($PeInfo.Architecture -eq 'ARM64') { 8 } else { 12 }
+    if ($runtimeFunctions.RawSize -lt $runtimeFunctionSize -or
+        ($runtimeFunctions.RawSize % $runtimeFunctionSize) -ne 0) {
+        throw 'PE exception data size is invalid'
+    }
+
+    return [PSCustomObject]@{
+        Text             = $text
+        RuntimeFunctions = $runtimeFunctions
+        RawPtrs          = [int[]]($PeInfo.Sections | ForEach-Object { [int]$_.RawPtr })
+        RawSizes         = [int[]]($PeInfo.Sections | ForEach-Object { [int]$_.RawSize })
+        VirtualAddresses = [int[]]($PeInfo.Sections | ForEach-Object { [int]$_.VirtualAddress })
+    }
+}
+
+function Get-UniqueBinaryAnchor {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo,
+        [string]$Text,
+        [switch]$NullTerminated
+    )
+
+    $anchorText = if ($NullTerminated) { "$Text`0" } else { $Text }
+    $anchor = [Text.Encoding]::ASCII.GetBytes($anchorText)
+    $anchorOffset = [BinaryScannerV3]::FindBytes($Bytes, $anchor, 0)
+    if ($anchorOffset -lt 0 -or [BinaryScannerV3]::FindBytes($Bytes, $anchor, $anchorOffset + 1) -ge 0) {
+        throw "$Text anchor was not found uniquely"
+    }
+
+    $anchorRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $anchorOffset
+    if ($null -eq $anchorRva) {
+        throw "$Text anchor RVA was not found"
+    }
+
+    return [PSCustomObject]@{
+        Offset = [int64]$anchorOffset
+        Rva    = [int64]$anchorRva
+    }
+}
+
+function Read-Arm64Instruction {
+    param(
+        [byte[]]$Bytes,
+        [int64]$Offset
+    )
+
+    if ($Offset -lt 0 -or $Offset + 4 -gt $Bytes.Length -or ($Offset % 4) -ne 0) {
+        throw 'ARM64 instruction is outside the file or unaligned'
+    }
+    return [BitConverter]::ToUInt32($Bytes, [int]$Offset)
+}
+
+function ConvertFrom-Arm64SignedImmediate {
+    param(
+        [int64]$Value,
+        [int]$Bits
+    )
+
+    $sign = [int64]1 -shl ($Bits - 1)
+    if (($Value -band $sign) -ne 0) {
+        return $Value - ([int64]1 -shl $Bits)
+    }
+    return $Value
+}
+
+function Get-Arm64AdrTargetRva {
+    param(
+        [uint32]$Instruction,
+        [int64]$InstructionRva
+    )
+
+    if (($Instruction -band [uint32]0x9F000000L) -ne [uint32]0x10000000) {
+        throw 'Expected ARM64 ADR instruction'
+    }
+    $immediate = [int64]((($Instruction -shr 5) -band 0x7FFFF) -shl 2) -bor
+        [int64](($Instruction -shr 29) -band 3)
+    return $InstructionRva + (ConvertFrom-Arm64SignedImmediate -Value $immediate -Bits 21)
+}
+
+function Get-Arm64BranchTargetRva {
+    param(
+        [uint32]$Instruction,
+        [int64]$InstructionRva,
+        [ValidateSet('B', 'BL', 'TbnzW0Bit0')]
+        [string]$Kind
+    )
+
+    switch ($Kind) {
+        'B' {
+            if (($Instruction -band [uint32]0xFC000000L) -ne [uint32]0x14000000) {
+                throw 'Expected ARM64 B instruction'
+            }
+            $immediate = ConvertFrom-Arm64SignedImmediate -Value ([int64]($Instruction -band 0x03FFFFFF)) -Bits 26
+        }
+        'BL' {
+            if (($Instruction -band [uint32]0xFC000000L) -ne [uint32]0x94000000L) {
+                throw 'Expected ARM64 BL instruction'
+            }
+            $immediate = ConvertFrom-Arm64SignedImmediate -Value ([int64]($Instruction -band 0x03FFFFFF)) -Bits 26
+        }
+        'TbnzW0Bit0' {
+            if (($Instruction -band [uint32]0xFFF8001FL) -ne [uint32]0x37000000) {
+                throw 'Expected ARM64 TBNZ w0, #0 instruction'
+            }
+            $immediate = ConvertFrom-Arm64SignedImmediate -Value ([int64](($Instruction -shr 5) -band 0x3FFF)) -Bits 14
+        }
+    }
+    return $InstructionRva + ($immediate -shl 2)
+}
+
+function Get-Arm64CbzW8TargetRva {
+    param(
+        [uint32]$Instruction,
+        [int64]$InstructionRva
+    )
+
+    if (($Instruction -band [uint32]0xFF00001FL) -ne [uint32]0x34000008) {
+        throw 'Expected ARM64 CBZ w8 instruction'
+    }
+    $immediate = ConvertFrom-Arm64SignedImmediate -Value ([int64](($Instruction -shr 5) -band 0x7FFFF)) -Bits 19
+    return $InstructionRva + ($immediate -shl 2)
+}
+
+function New-Arm64BranchBytes {
+    param(
+        [int64]$InstructionRva,
+        [int64]$TargetRva
+    )
+
+    $displacement = $TargetRva - $InstructionRva
+    if (($displacement % 4) -ne 0 -or $displacement -lt -0x8000000 -or $displacement -gt 0x7FFFFFC) {
+        throw 'ARM64 branch target is out of range or unaligned'
+    }
+    $immediate = ([int64]($displacement / 4)) -band 0x03FFFFFF
+    return [BitConverter]::GetBytes([uint32]([uint32]0x14000000 -bor [uint32]$immediate))
+}
+
+function Get-BinaryPatchFunctionRange {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo,
+        [object]$Context,
+        [int64]$Rva
+    )
+
+    if ($PeInfo.Architecture -eq 'x64') {
+        return , ([BinaryScannerV3]::FindFunctionRange(
+            $Bytes,
+            [int]$Context.RuntimeFunctions.RawPtr,
+            [int]$Context.RuntimeFunctions.RawSize,
+            $Rva,
+            [int64]$Context.Text.VirtualAddress,
+            [Math]::Max([int64]$Context.Text.VirtualSize, [int64]$Context.Text.RawSize)
+        ))
+    }
+    if ($PeInfo.Architecture -eq 'ARM64') {
+        return , ([BinaryScannerV3]::FindArm64FunctionRange(
+            $Bytes,
+            [int]$Context.RuntimeFunctions.RawPtr,
+            [int]$Context.RuntimeFunctions.RawSize,
+            $Rva,
+            [int64]$Context.Text.VirtualAddress,
+            [Math]::Max([int64]$Context.Text.VirtualSize, [int64]$Context.Text.RawSize),
+            $Context.RawPtrs,
+            $Context.RawSizes,
+            $Context.VirtualAddresses
+        ))
+    }
+    return , ([long[]]@())
+}
+
+function Find-ResetDllSignBinaryPatchLocation {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo
+    )
+
+    $context = Get-BinaryPatchContext -PeInfo $PeInfo
+    $anchor = Get-UniqueBinaryAnchor `
+        -Bytes $Bytes `
+        -PeInfo $PeInfo `
+        -Text 'Check failed: sep_pos != std::wstring::npos.'
+
+    switch ($PeInfo.Architecture) {
+        'x64' {
+            $anchorRefs = @([BinaryScannerV3]::FindRipLeaRefs(
+                $Bytes,
+                [int]$context.Text.RawPtr,
+                [int]$context.Text.RawSize,
+                [int64]$anchor.Rva,
+                $context.RawPtrs,
+                $context.RawSizes,
+                $context.VirtualAddresses
+            ) | Select-Object -Unique)
+            $patchedBytes = Convert-HexStringToBytes 'B8 01 00 00 00 C3'
+        }
+        'ARM64' {
+            $anchorRefs = @([BinaryScannerV3]::FindXrefArm64(
+                $Bytes,
+                [uint64]$anchor.Rva,
+                [uint64]$context.Text.VirtualAddress,
+                [uint32]$context.Text.RawPtr,
+                [uint32]$context.Text.RawSize
+            ) | Select-Object -Unique)
+            $patchedBytes = Convert-HexStringToBytes '20 00 80 52 C0 03 5F D6'
+        }
+        default {
+            throw "Architecture $($PeInfo.Architecture) is not supported for reset_dll_sign patch"
+        }
+    }
+    if ($anchorRefs.Count -eq 0) {
+        throw 'reset_dll_sign code reference was not found'
+    }
+
+    $functions = @{}
+    foreach ($anchorRef in $anchorRefs) {
+        $anchorRefRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $anchorRef
+        if ($null -eq $anchorRefRva) { continue }
+        $range = Get-BinaryPatchFunctionRange -Bytes $Bytes -PeInfo $PeInfo -Context $context -Rva $anchorRefRva
+        if ($range.Length -ne 2) { continue }
+        $functions['{0:X}' -f [int64]$range[0]] = [PSCustomObject]@{
+            StartRva = [int64]$range[0]
+            EndRva   = [int64]$range[1]
+        }
+    }
+    if ($functions.Count -ne 1) {
+        throw "Expected one reset_dll_sign function, found $($functions.Count)"
+    }
+
+    $function = @($functions.Values)[0]
+    $patchOffset = Get-PEOffsetFromRva -Sections $PeInfo.Sections -Rva $function.StartRva
+    if ($null -eq $patchOffset -or
+        ($function.EndRva - $function.StartRva) -lt $patchedBytes.Length -or
+        $patchOffset + $patchedBytes.Length -gt $Bytes.Length) {
+        throw 'reset_dll_sign patch range is invalid'
+    }
+    $patchOffset = [int64]$patchOffset
+
+    if ([BinaryScannerV3]::MatchBytes($Bytes, [int]$patchOffset, $patchedBytes)) {
+        $state = 'Patched'
+        $originalBytes = $null
+    }
+    else {
+        if ($PeInfo.Architecture -eq 'ARM64') {
+            $prologue = Read-Arm64Instruction -Bytes $Bytes -Offset $patchOffset
+            if (($prologue -band [uint32]0xFF00FFFFL) -ne [uint32]0xA9007BFDL) {
+                throw 'Unexpected ARM64 reset_dll_sign function prologue'
+            }
+        }
+        else {
+            $firstByte = [int]$Bytes[$patchOffset]
+            if ($firstByte -ne 0x48 -and $firstByte -ne 0x40 -and $firstByte -ne 0x55 -and
+                ($firstByte -lt 0x53 -or $firstByte -gt 0x57)) {
+                throw 'Unexpected x64 reset_dll_sign function prologue'
+            }
+        }
+        $originalBytes = [byte[]]$Bytes[$patchOffset..($patchOffset + $patchedBytes.Length - 1)]
+        $state = 'Original'
+    }
+
+    return [PSCustomObject]@{
+        Architecture  = $PeInfo.Architecture
+        FunctionRva   = $function.StartRva
+        PatchOffset   = $patchOffset
+        OriginalBytes = $originalBytes
+        PatchedBytes  = $patchedBytes
+        State         = $state
+        AnchorRefCount = $anchorRefs.Count
+    }
+}
+
+function Reset-Dll-Sign {
+    [CmdletBinding()]
+    param (
+        [string]$FilePath
+    )
+
+    $result = Invoke-VerifiedBinaryPatch `
+        -FilePath $FilePath `
+        -PatchName 'reset_dll_sign' `
+        -Locator {
+            param([byte[]]$Bytes, [object]$PeInfo)
+            Find-ResetDllSignBinaryPatchLocation -Bytes $Bytes -PeInfo $PeInfo
+        } `
+        -DescribeLocation {
+            param([object]$Location)
+            Write-Verbose ("reset_dll_sign {0} function RVA 0x{1:X}, references {2}" -f
+                $Location.Architecture, $Location.FunctionRva, $Location.AnchorRefCount)
+        }
+    if (-not $result) {
+        Stop-Script
+    }
+}
+
+function Read-X64SignedByte {
+    param(
+        [byte[]]$Bytes,
+        [int]$Offset
+    )
+
+    if ($Offset -lt 0 -or $Offset -ge $Bytes.Length) {
+        throw 'Signed byte is outside the file'
+    }
+
+    $value = [int]$Bytes[$Offset]
+    if ($value -ge 0x80) {
+        return $value - 0x100
+    }
+    return $value
+}
+
+function Read-X64RelativeBranch {
+    param(
+        [byte[]]$Bytes,
+        [int]$Offset,
+        [ValidateSet('Je', 'Jne', 'Jmp')]
+        [string]$Kind,
+        [int]$Limit
+    )
+
+    switch ($Kind) {
+        'Je' { $shortOpcode = 0x74; $nearOpcode = 0x84 }
+        'Jne' { $shortOpcode = 0x75; $nearOpcode = 0x85 }
+        'Jmp' { $shortOpcode = 0xEB; $nearOpcode = $null }
+    }
+
+    if ($Offset -ge 0 -and ($Offset + 2) -le $Limit -and $Bytes[$Offset] -eq $shortOpcode) {
+        $nextOffset = $Offset + 2
+        $displacement = Read-X64SignedByte -Bytes $Bytes -Offset ($Offset + 1)
+    }
+    elseif ($null -ne $nearOpcode -and $Offset -ge 0 -and ($Offset + 6) -le $Limit -and
+        $Bytes[$Offset] -eq 0x0F -and $Bytes[$Offset + 1] -eq $nearOpcode) {
+        $nextOffset = $Offset + 6
+        $displacement = [BitConverter]::ToInt32($Bytes, $Offset + 2)
+    }
+    elseif ($Kind -eq 'Jmp' -and $Offset -ge 0 -and ($Offset + 5) -le $Limit -and $Bytes[$Offset] -eq 0xE9) {
+        $nextOffset = $Offset + 5
+        $displacement = [BitConverter]::ToInt32($Bytes, $Offset + 1)
+    }
+    else {
+        throw "Expected $Kind branch"
+    }
+
+    return [PSCustomObject]@{
+        NextOffset   = [int]$nextOffset
+        TargetOffset = [int64]$nextOffset + [int64]$displacement
+    }
+}
+
+function Read-X64BlockSlotsField {
+    param(
+        [byte[]]$Bytes,
+        [int]$Offset,
+        [ValidateSet('CmpRcxBl', 'MovAlRcx', 'CmpRdiBl')]
+        [string]$Kind
+    )
+
+    switch ($Kind) {
+        'CmpRcxBl' { $disp8 = Convert-HexStringToBytes '38 59'; $disp32 = Convert-HexStringToBytes '38 99' }
+        'MovAlRcx' { $disp8 = Convert-HexStringToBytes '8A 41'; $disp32 = Convert-HexStringToBytes '8A 81' }
+        'CmpRdiBl' { $disp8 = Convert-HexStringToBytes '38 5F'; $disp32 = Convert-HexStringToBytes '38 9F' }
+    }
+
+    if ([BinaryScannerV3]::MatchBytes($Bytes, $Offset, $disp8) -and ($Offset + 3) -le $Bytes.Length) {
+        return [PSCustomObject]@{
+            Value      = [int64](Read-X64SignedByte -Bytes $Bytes -Offset ($Offset + 2))
+            NextOffset = $Offset + 3
+        }
+    }
+    if ([BinaryScannerV3]::MatchBytes($Bytes, $Offset, $disp32) -and ($Offset + 6) -le $Bytes.Length) {
+        return [PSCustomObject]@{
+            Value      = [int64][BitConverter]::ToInt32($Bytes, $Offset + 2)
+            NextOffset = $Offset + 6
+        }
+    }
+
+    throw "Unexpected block_slots field instruction"
+}
+
+function Get-X64BlockSlotsMapperSequenceEnum {
+    param(
+        [byte[]]$Bytes,
+        [int]$SequenceOffset,
+        [int]$BranchOffset,
+        [bool]$MatchTaken = $true
+    )
+
+    $movEcxR8d = Convert-HexStringToBytes '41 8B C8'
+    $subEcx8 = Convert-HexStringToBytes '83 E9'
+    $subEcx32 = Convert-HexStringToBytes '81 E9'
+    $cmpEcx8 = Convert-HexStringToBytes '83 F9'
+    $cmpEcx32 = Convert-HexStringToBytes '81 F9'
+    if (-not [BinaryScannerV3]::MatchBytes($Bytes, $SequenceOffset, $movEcxR8d)) {
+        return @()
+    }
+
+    $matches = @()
+    for ($enumValue = 1; $enumValue -le 0x3FF; $enumValue++) {
+        $ecx = [int64]$enumValue
+        $zeroFlag = $false
+        $hasFlags = $false
+        $cursor = $SequenceOffset + $movEcxR8d.Length
+        $valid = $true
+        $matched = $false
+
+        while ($cursor -le $BranchOffset) {
+            if ([BinaryScannerV3]::MatchBytes($Bytes, $cursor, $subEcx8)) {
+                $ecx -= [int64](Read-X64SignedByte -Bytes $Bytes -Offset ($cursor + 2))
+                $zeroFlag = ($ecx -eq 0)
+                $hasFlags = $true
+                $cursor += 3
+                continue
+            }
+            if ([BinaryScannerV3]::MatchBytes($Bytes, $cursor, $subEcx32)) {
+                $ecx -= [int64][BitConverter]::ToInt32($Bytes, $cursor + 2)
+                $zeroFlag = ($ecx -eq 0)
+                $hasFlags = $true
+                $cursor += 6
+                continue
+            }
+            if ([BinaryScannerV3]::MatchBytes($Bytes, $cursor, $cmpEcx8)) {
+                $compareValue = [int64](Read-X64SignedByte -Bytes $Bytes -Offset ($cursor + 2))
+                $zeroFlag = ($ecx -eq $compareValue)
+                $hasFlags = $true
+                $cursor += 3
+                continue
+            }
+            if ([BinaryScannerV3]::MatchBytes($Bytes, $cursor, $cmpEcx32)) {
+                $compareValue = [int64][BitConverter]::ToInt32($Bytes, $cursor + 2)
+                $zeroFlag = ($ecx -eq $compareValue)
+                $hasFlags = $true
+                $cursor += 6
+                continue
+            }
+
+            $branchLength = 0
+            $branchOnEqual = $false
+            if (($cursor + 2) -le $Bytes.Length -and ($Bytes[$cursor] -eq 0x74 -or $Bytes[$cursor] -eq 0x75)) {
+                $branchLength = 2
+                $branchOnEqual = ($Bytes[$cursor] -eq 0x74)
+            }
+            elseif (($cursor + 6) -le $Bytes.Length -and $Bytes[$cursor] -eq 0x0F -and
+                ($Bytes[$cursor + 1] -eq 0x84 -or $Bytes[$cursor + 1] -eq 0x85)) {
+                $branchLength = 6
+                $branchOnEqual = ($Bytes[$cursor + 1] -eq 0x84)
+            }
+            else {
+                $valid = $false
+                break
+            }
+
+            if (-not $hasFlags) {
+                $valid = $false
+                break
+            }
+            $branchTaken = if ($branchOnEqual) { $zeroFlag } else { -not $zeroFlag }
+            if ($cursor -eq $BranchOffset) {
+                $matched = if ($MatchTaken) { $branchTaken } else { -not $branchTaken }
+                break
+            }
+            if ($branchTaken) {
+                $valid = $false
+                break
+            }
+            $cursor += $branchLength
+        }
+
+        if ($valid -and $matched) {
+            $matches += [uint32]$enumValue
+        }
+    }
+
+    return $matches
+}
+
+function Get-X64BlockSlotsMapperEnumValue {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo,
+        [int64]$MapperStartRva,
+        [int64]$MapperEndRva,
+        [int[]]$AnchorRefs
+    )
+
+    $mapperOffset = Get-PEOffsetFromRva -Sections $PeInfo.Sections -Rva $MapperStartRva
+    if ($null -eq $mapperOffset) {
+        throw 'slot_is_disabled mapper offset was not found'
+    }
+
+    $mapperOffset = [int]$mapperOffset
+    $mapperEndOffset = [int64]$mapperOffset + ($MapperEndRva - $MapperStartRva)
+    if ($mapperEndOffset -le $mapperOffset -or $mapperEndOffset -gt $Bytes.Length) {
+        throw 'slot_is_disabled mapper range is invalid'
+    }
+
+    $stringCases = @(
+        [PSCustomObject]@{
+            PrefixLength = 20
+            Pattern      = Convert-HexStringToBytes '0F 57 C0 0F 11 02 48 89 7A 10 48 89 7A 18 41 B8 10 00 00 00 48 8D 15 00 00 00 00'
+            Mask         = Convert-HexStringToBytes 'FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 00 00 00 00'
+            DispatchMode = 'Target'
+        },
+        [PSCustomObject]@{
+            PrefixLength = 18
+            Pattern      = Convert-HexStringToBytes '0F 57 C0 0F 11 02 48 89 7A 10 48 89 7A 18 44 8D 41 0F 48 8D 15 00 00 00 00'
+            Mask         = Convert-HexStringToBytes 'FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 00 00 00 00'
+            DispatchMode = 'Fallthrough'
+        }
+    )
+    $movEcxR8d = Convert-HexStringToBytes '41 8B C8'
+    $cmpR8d8 = Convert-HexStringToBytes '41 83 F8'
+    $cmpR8d32 = Convert-HexStringToBytes '41 81 F8'
+    $enumValues = @{}
+
+    foreach ($anchorRef in $AnchorRefs) {
+        if (([int64]$anchorRef + 7) -gt $mapperEndOffset) {
+            continue
+        }
+
+        foreach ($stringCase in $stringCases) {
+            $caseOffset = [int]$anchorRef - $stringCase.PrefixLength
+            if ($caseOffset -lt $mapperOffset -or
+                -not [BinaryScannerV3]::MatchMaskedBytes($Bytes, $caseOffset, $stringCase.Pattern, $stringCase.Mask)) {
+                continue
+            }
+
+            $dispatches = @()
+            if ($stringCase.DispatchMode -eq 'Target') {
+                for ($branchOffset = $mapperOffset; $branchOffset -lt $caseOffset; $branchOffset++) {
+                    if (($Bytes[$branchOffset] -eq 0x74 -or $Bytes[$branchOffset] -eq 0x75) -and
+                        ($branchOffset + 2) -le $mapperEndOffset) {
+                        $branchOnEqual = ($Bytes[$branchOffset] -eq 0x74)
+                        $branchTarget = [int64]$branchOffset + 2 +
+                            (Read-X64SignedByte -Bytes $Bytes -Offset ($branchOffset + 1))
+                    }
+                    elseif ($Bytes[$branchOffset] -eq 0x0F -and ($branchOffset + 6) -le $mapperEndOffset -and
+                        ($Bytes[$branchOffset + 1] -eq 0x84 -or $Bytes[$branchOffset + 1] -eq 0x85)) {
+                        $branchOnEqual = ($Bytes[$branchOffset + 1] -eq 0x84)
+                        $branchTarget = [int64]$branchOffset + 6 + [BitConverter]::ToInt32($Bytes, $branchOffset + 2)
+                    }
+                    else {
+                        continue
+                    }
+
+                    if ($branchTarget -eq $caseOffset) {
+                        $dispatches += [PSCustomObject]@{
+                            Offset        = $branchOffset
+                            BranchOnEqual = $branchOnEqual
+                            MatchTaken    = $true
+                        }
+                    }
+                }
+            }
+            else {
+                if ($caseOffset -ge ($mapperOffset + 6) -and $Bytes[$caseOffset - 6] -eq 0x0F -and
+                    ($Bytes[$caseOffset - 5] -eq 0x84 -or $Bytes[$caseOffset - 5] -eq 0x85)) {
+                    $branchOffset = $caseOffset - 6
+                    $branchOnEqual = ($Bytes[$caseOffset - 5] -eq 0x84)
+                    $branchTarget = [int64]$caseOffset + [BitConverter]::ToInt32($Bytes, $caseOffset - 4)
+                }
+                elseif ($caseOffset -ge ($mapperOffset + 2) -and
+                    ($Bytes[$caseOffset - 2] -eq 0x74 -or $Bytes[$caseOffset - 2] -eq 0x75)) {
+                    $branchOffset = $caseOffset - 2
+                    $branchOnEqual = ($Bytes[$caseOffset - 2] -eq 0x74)
+                    $branchTarget = [int64]$caseOffset +
+                        (Read-X64SignedByte -Bytes $Bytes -Offset ($caseOffset - 1))
+                }
+                else {
+                    continue
+                }
+
+                if ($branchTarget -lt $mapperOffset -or $branchTarget -ge $mapperEndOffset -or $branchTarget -eq $caseOffset) {
+                    continue
+                }
+                $dispatches += [PSCustomObject]@{
+                    Offset        = $branchOffset
+                    BranchOnEqual = $branchOnEqual
+                    MatchTaken    = $false
+                }
+            }
+
+            foreach ($dispatch in $dispatches) {
+                $branchOffset = [int]$dispatch.Offset
+                $selectsEquality = ($dispatch.BranchOnEqual -eq $dispatch.MatchTaken)
+                if ($selectsEquality -and $branchOffset -ge ($mapperOffset + 4) -and
+                    [BinaryScannerV3]::MatchBytes($Bytes, $branchOffset - 4, $cmpR8d8)) {
+                    $enumValue = [int64](Read-X64SignedByte -Bytes $Bytes -Offset ($branchOffset - 1))
+                    if ($enumValue -gt 0 -and $enumValue -le 0x3FF) {
+                        $enumValues['{0:X}' -f $enumValue] = [uint32]$enumValue
+                    }
+                }
+                if ($selectsEquality -and $branchOffset -ge ($mapperOffset + 7) -and
+                    [BinaryScannerV3]::MatchBytes($Bytes, $branchOffset - 7, $cmpR8d32)) {
+                    $enumValue = [BitConverter]::ToUInt32($Bytes, $branchOffset - 4)
+                    if ($enumValue -gt 0 -and $enumValue -le 0x3FF) {
+                        $enumValues['{0:X}' -f $enumValue] = $enumValue
+                    }
+                }
+
+                $sequenceStart = [Math]::Max($mapperOffset, $branchOffset - 0x100)
+                for ($candidateOffset = $sequenceStart; $candidateOffset -lt $branchOffset; $candidateOffset++) {
+                    if (-not [BinaryScannerV3]::MatchBytes($Bytes, $candidateOffset, $movEcxR8d)) {
+                        continue
+                    }
+                    $sequenceEnums = @(Get-X64BlockSlotsMapperSequenceEnum `
+                            -Bytes $Bytes `
+                            -SequenceOffset $candidateOffset `
+                            -BranchOffset $branchOffset `
+                            -MatchTaken $dispatch.MatchTaken)
+                    foreach ($enumValue in $sequenceEnums) {
+                        $enumValues['{0:X}' -f [uint32]$enumValue] = [uint32]$enumValue
+                    }
+                }
+            }
+        }
+    }
+
+    if ($enumValues.Count -ne 1) {
+        throw "Expected one slot_is_disabled enum value, found $($enumValues.Count)"
+    }
+    return [uint32](@($enumValues.Values)[0])
+}
+
+function Get-X64BlockSlotsPredicateInfo {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo,
+        [object]$TextSection,
+        [object]$RuntimeFunctions,
+        [int64]$TargetRva
+    )
+
+    try {
+        $runtimeRange = [BinaryScannerV3]::FindFunctionRange(
+            $Bytes,
+            [int]$RuntimeFunctions.RawPtr,
+            [int]$RuntimeFunctions.RawSize,
+            $TargetRva,
+            [int64]$TextSection.VirtualAddress,
+            [Math]::Max([int64]$TextSection.VirtualSize, [int64]$TextSection.RawSize)
+        )
+        if ($runtimeRange.Length -ne 2 -or [int64]$runtimeRange[0] -ne $TargetRva) {
+            return $null
+        }
+
+        $functionSize = [int64]$runtimeRange[1] - [int64]$runtimeRange[0]
+        if ($functionSize -lt 0x20 -or $functionSize -gt 0x100) {
+            return $null
+        }
+
+        $functionOffset = Get-PEOffsetFromRva -Sections $PeInfo.Sections -Rva $TargetRva
+        if ($null -eq $functionOffset) {
+            return $null
+        }
+
+        $functionOffset = [int64]$functionOffset
+        $functionEndOffset = $functionOffset + $functionSize
+        $textStart = [int64]$TextSection.RawPtr
+        $textEnd = $textStart + [int64]$TextSection.RawSize
+        if ($functionOffset -lt $textStart -or $functionEndOffset -gt $textEnd -or $functionEndOffset -gt $Bytes.Length) {
+            return $null
+        }
+
+        $codeOffset = [int]$functionOffset
+        $endbr64 = Convert-HexStringToBytes 'F3 0F 1E FA'
+        if ([BinaryScannerV3]::MatchBytes($Bytes, $codeOffset, $endbr64)) {
+            $codeOffset += $endbr64.Length
+        }
+
+        $prologue = Convert-HexStringToBytes '48 89 5C 24 00 57 48 83 EC 00 32 DB'
+        $prologueMask = Convert-HexStringToBytes 'FF FF FF FF 00 FF FF FF FF 00 FF FF'
+        if (-not [BinaryScannerV3]::MatchMaskedBytes($Bytes, $codeOffset, $prologue, $prologueMask)) {
+            return $null
+        }
+
+        $saveDisplacement = [int]$Bytes[$codeOffset + 4]
+        $stackFrame = [int]$Bytes[$codeOffset + 9]
+        if ($stackFrame -le 0) {
+            return $null
+        }
+
+        $patchOffset = $codeOffset + $prologue.Length
+        $originalPatch = Convert-HexStringToBytes '48 8B F9'
+        if ([BinaryScannerV3]::MatchBytes($Bytes, $patchOffset, $originalPatch)) {
+            $state = 'Original'
+        }
+        elseif (($patchOffset + 3) -le $functionEndOffset -and $Bytes[$patchOffset] -eq 0xEB -and $Bytes[$patchOffset + 2] -eq 0x90) {
+            $state = 'Patched'
+        }
+        else {
+            return $null
+        }
+
+        $cursor = $patchOffset + 3
+        $flagField = Read-X64BlockSlotsField -Bytes $Bytes -Offset $cursor -Kind CmpRcxBl
+        $cursor = $flagField.NextOffset
+        $toGate = Read-X64RelativeBranch -Bytes $Bytes -Offset $cursor -Kind Je -Limit ([int]$functionEndOffset)
+        $cursor = $toGate.NextOffset
+        $valueField = Read-X64BlockSlotsField -Bytes $Bytes -Offset $cursor -Kind MovAlRcx
+        $cursor = $valueField.NextOffset
+        $toEpilogue = Read-X64RelativeBranch -Bytes $Bytes -Offset $cursor -Kind Jmp -Limit ([int]$functionEndOffset)
+        $cursor = $toEpilogue.NextOffset
+
+        if ($toGate.TargetOffset -ne $cursor) {
+            return $null
+        }
+
+        $gateField = Read-X64BlockSlotsField -Bytes $Bytes -Offset $cursor -Kind CmpRcxBl
+        $cursor = $gateField.NextOffset
+        $gateToFalse = Read-X64RelativeBranch -Bytes $Bytes -Offset $cursor -Kind Je -Limit ([int]$functionEndOffset)
+        $cursor = $gateToFalse.NextOffset
+
+        if (($cursor + 5) -gt $functionEndOffset -or $Bytes[$cursor] -ne 0xE8) {
+            return $null
+        }
+        $helperCallRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $cursor
+        if ($null -eq $helperCallRva) {
+            return $null
+        }
+        $helperTargetRva = [int64]$helperCallRva + 5 + [BitConverter]::ToInt32($Bytes, $cursor + 1)
+        $textRvaEnd = [int64]$TextSection.VirtualAddress + [Math]::Max([int64]$TextSection.VirtualSize, [int64]$TextSection.RawSize)
+        if ($helperTargetRva -lt [int64]$TextSection.VirtualAddress -or $helperTargetRva -ge $textRvaEnd) {
+            return $null
+        }
+        $cursor += 5
+
+        $testAl = Convert-HexStringToBytes '84 C0'
+        if (-not [BinaryScannerV3]::MatchBytes($Bytes, $cursor, $testAl)) {
+            return $null
+        }
+        $cursor += $testAl.Length
+        $helperToTrue = Read-X64RelativeBranch -Bytes $Bytes -Offset $cursor -Kind Jne -Limit ([int]$functionEndOffset)
+        $cursor = $helperToTrue.NextOffset
+
+        $fallbackField = Read-X64BlockSlotsField -Bytes $Bytes -Offset $cursor -Kind CmpRdiBl
+        $cursor = $fallbackField.NextOffset
+        $fallbackToFalse = Read-X64RelativeBranch -Bytes $Bytes -Offset $cursor -Kind Je -Limit ([int]$functionEndOffset)
+        $cursor = $fallbackToFalse.NextOffset
+
+        $setTrueOffset = $cursor
+        if ($helperToTrue.TargetOffset -ne $setTrueOffset -or
+            -not [BinaryScannerV3]::MatchBytes($Bytes, $setTrueOffset, (Convert-HexStringToBytes 'B3 01'))) {
+            return $null
+        }
+        $cursor += 2
+
+        $returnFalseOffset = $cursor
+        if ($gateToFalse.TargetOffset -ne $returnFalseOffset -or $fallbackToFalse.TargetOffset -ne $returnFalseOffset -or
+            -not [BinaryScannerV3]::MatchBytes($Bytes, $returnFalseOffset, (Convert-HexStringToBytes '8A C3'))) {
+            return $null
+        }
+        $cursor += 2
+
+        $epilogueOffset = $cursor
+        if ($toEpilogue.TargetOffset -ne $epilogueOffset) {
+            return $null
+        }
+
+        $epilogue = Convert-HexStringToBytes '48 8B 5C 24 00 48 83 C4 00 5F C3'
+        $epilogueMask = Convert-HexStringToBytes 'FF FF FF FF 00 FF FF FF 00 FF FF'
+        if (-not [BinaryScannerV3]::MatchMaskedBytes($Bytes, $epilogueOffset, $epilogue, $epilogueMask)) {
+            return $null
+        }
+
+        $restoreDisplacement = [int]$Bytes[$epilogueOffset + 4]
+        $restoreFrame = [int]$Bytes[$epilogueOffset + 8]
+        if ($restoreFrame -ne $stackFrame -or $restoreDisplacement -ne ($saveDisplacement + $stackFrame + 8)) {
+            return $null
+        }
+        $cursor += $epilogue.Length
+
+        $tailLength = [int64]$functionEndOffset - $cursor
+        if ($tailLength -lt 0 -or $tailLength -gt 16) {
+            return $null
+        }
+        for ($i = $cursor; $i -lt $functionEndOffset; $i++) {
+            if ($Bytes[$i] -ne 0x90 -and $Bytes[$i] -ne 0xCC) {
+                return $null
+            }
+        }
+
+        $jumpDisplacement = [int64]$returnFalseOffset - ([int64]$patchOffset + 2)
+        if ($jumpDisplacement -lt 0 -or $jumpDisplacement -gt 0x7F) {
+            return $null
+        }
+        $patchedBytes = [byte[]]@(0xEB, [byte]$jumpDisplacement, 0x90)
+        if ($state -eq 'Patched' -and -not [BinaryScannerV3]::MatchBytes($Bytes, $patchOffset, $patchedBytes)) {
+            return $null
+        }
+
+        return [PSCustomObject]@{
+            PredicateRva    = $TargetRva
+            FunctionOffset  = [int64]$functionOffset
+            FunctionEnd     = [int64]$functionEndOffset
+            PatchOffset     = [int64]$patchOffset
+            ReturnOffset    = [int64]$returnFalseOffset
+            OriginalBytes   = $originalPatch
+            PatchedBytes    = $patchedBytes
+            State           = $state
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
+function Find-X64BlockSlotsBinaryPatchLocation {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo
+    )
+
+    $context = Get-BinaryPatchContext -PeInfo $PeInfo
+    $text = $context.Text
+    $runtimeFunctions = $context.RuntimeFunctions
+    $anchor = Get-UniqueBinaryAnchor -Bytes $Bytes -PeInfo $PeInfo -Text 'slot_is_disabled' -NullTerminated
+
+    $anchorRefs = @([BinaryScannerV3]::FindRipLeaRefs(
+        $Bytes,
+        [int]$text.RawPtr,
+        [int]$text.RawSize,
+        [int64]$anchor.Rva,
+        $context.RawPtrs,
+        $context.RawSizes,
+        $context.VirtualAddresses
+    ) | Select-Object -Unique)
+    if ($anchorRefs.Count -eq 0) {
+        throw 'slot_is_disabled code reference was not found'
+    }
+
+    $anchorFunctions = @{}
+    foreach ($anchorRef in $anchorRefs) {
+        $anchorRefRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset ([int64]$anchorRef)
+        if ($null -eq $anchorRefRva) {
+            throw 'slot_is_disabled reference RVA was not found'
+        }
+        $anchorFunction = Get-BinaryPatchFunctionRange `
+            -Bytes $Bytes `
+            -PeInfo $PeInfo `
+            -Context $context `
+            -Rva ([int64]$anchorRefRva)
+        if ($anchorFunction.Length -ne 2) {
+            throw 'slot_is_disabled mapper function was not found'
+        }
+        $anchorFunctionSize = [int64]$anchorFunction[1] - [int64]$anchorFunction[0]
+        if ($anchorFunctionSize -lt 0x100 -or $anchorFunctionSize -gt 0x4000) {
+            throw 'Unexpected slot_is_disabled mapper function size'
+        }
+        $anchorFunctions['{0:X}' -f [int64]$anchorFunction[0]] = [PSCustomObject]@{
+            StartRva = [int64]$anchorFunction[0]
+            EndRva   = [int64]$anchorFunction[1]
+        }
+    }
+    if ($anchorFunctions.Count -ne 1) {
+        throw "Expected one slot_is_disabled mapper function, found $($anchorFunctions.Count)"
+    }
+
+    $mapperFunction = @($anchorFunctions.Values)[0]
+    $slotDisabledEnum = Get-X64BlockSlotsMapperEnumValue `
+        -Bytes $Bytes `
+        -PeInfo $PeInfo `
+        -MapperStartRva $mapperFunction.StartRva `
+        -MapperEndRva $mapperFunction.EndRva `
+        -AnchorRefs $anchorRefs
+
+    $callPatterns = @(
+        [PSCustomObject]@{
+            Pattern      = Convert-HexStringToBytes 'E8 00 00 00 00 84 C0 75 00 BA 00 00 00 00'
+            Mask         = Convert-HexStringToBytes 'FF 00 00 00 00 FF FF FF 00 FF 00 00 00 00'
+            BranchOffset = 7
+            EnumOffset   = 10
+        },
+        [PSCustomObject]@{
+            Pattern      = Convert-HexStringToBytes 'E8 00 00 00 00 84 C0 0F 85 00 00 00 00 BA 00 00 00 00'
+            Mask         = Convert-HexStringToBytes 'FF 00 00 00 00 FF FF FF FF 00 00 00 00 FF 00 00 00 00'
+            BranchOffset = 7
+            EnumOffset   = 14
+        }
+    )
+
+    $textStart = [int]$text.RawPtr
+    $textEnd = [int64]$text.RawPtr + [int64]$text.RawSize
+    $validatedTargets = @{}
+
+    foreach ($callPattern in $callPatterns) {
+        $searchOffset = $textStart
+        while ($searchOffset -lt $textEnd) {
+            $callOffset = [BinaryScannerV3]::FindMaskedBytes(
+                $Bytes,
+                $callPattern.Pattern,
+                $callPattern.Mask,
+                $searchOffset,
+                [int]($textEnd - $searchOffset)
+            )
+            if ($callOffset -lt 0) {
+                break
+            }
+            $searchOffset = $callOffset + 1
+
+            try {
+                $enumValue = [BitConverter]::ToUInt32($Bytes, $callOffset + $callPattern.EnumOffset)
+                if ($enumValue -ne $slotDisabledEnum) {
+                    continue
+                }
+
+                $callerRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $callOffset
+                $callNextRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset ($callOffset + 5)
+                if ($null -eq $callerRva -or $null -eq $callNextRva) {
+                    continue
+                }
+
+                $callerRange = Get-BinaryPatchFunctionRange `
+                    -Bytes $Bytes `
+                    -PeInfo $PeInfo `
+                    -Context $context `
+                    -Rva ([int64]$callerRva)
+                if ($callerRange.Length -ne 2) {
+                    continue
+                }
+
+                $callerBranch = Read-X64RelativeBranch `
+                    -Bytes $Bytes `
+                    -Offset ($callOffset + $callPattern.BranchOffset) `
+                    -Kind Jne `
+                    -Limit ([int]$textEnd)
+                $branchTargetRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $callerBranch.TargetOffset
+                if ($null -eq $branchTargetRva -or $branchTargetRva -lt [int64]$callerRange[0] -or
+                    $branchTargetRva -ge [int64]$callerRange[1]) {
+                    continue
+                }
+
+                $targetRva = [int64]$callNextRva + [BitConverter]::ToInt32($Bytes, $callOffset + 1)
+                $predicate = Get-X64BlockSlotsPredicateInfo `
+                    -Bytes $Bytes `
+                    -PeInfo $PeInfo `
+                    -TextSection $text `
+                    -RuntimeFunctions $runtimeFunctions `
+                    -TargetRva $targetRva
+                if ($null -eq $predicate) {
+                    continue
+                }
+
+                $key = '{0:X}' -f $targetRva
+                if (-not $validatedTargets.ContainsKey($key)) {
+                    $validatedTargets[$key] = [PSCustomObject]@{
+                        Predicate   = $predicate
+                        CallerCount = 1
+                        CallerOffset = [int64]$callOffset
+                        EnumValue   = [uint32]$enumValue
+                    }
+                }
+                else {
+                    $validatedTargets[$key].CallerCount++
+                }
+            }
+            catch {
+                continue
+            }
+        }
+    }
+
+    if ($validatedTargets.Count -eq 0) {
+        throw 'block_slots semantic function was not found'
+    }
+    if ($validatedTargets.Count -ne 1) {
+        throw "Expected one block_slots semantic function, found $($validatedTargets.Count)"
+    }
+
+    $match = @($validatedTargets.Values)[0]
+    return [PSCustomObject]@{
+        Architecture  = 'x64'
+        PredicateRva  = $match.Predicate.PredicateRva
+        FunctionOffset = $match.Predicate.FunctionOffset
+        FunctionEnd   = $match.Predicate.FunctionEnd
+        PatchOffset   = $match.Predicate.PatchOffset
+        ReturnOffset  = $match.Predicate.ReturnOffset
+        OriginalBytes = $match.Predicate.OriginalBytes
+        PatchedBytes  = $match.Predicate.PatchedBytes
+        State         = $match.Predicate.State
+        CallerOffset  = $match.CallerOffset
+        CallerCount   = $match.CallerCount
+        EnumValue     = $match.EnumValue
+    }
+}
+
+function Get-Arm64BlockSlotsMapperEnumValue {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo,
+        [int64]$MapperStartRva,
+        [int64]$MapperEndRva,
+        [int[]]$AnchorRefs
+    )
+
+    $mapperOffset = Get-PEOffsetFromRva -Sections $PeInfo.Sections -Rva $MapperStartRva
+    if ($null -eq $mapperOffset) {
+        throw 'slot_is_disabled mapper offset was not found'
+    }
+    $mapperEndOffset = [int64]$mapperOffset + ($MapperEndRva - $MapperStartRva)
+    if ($mapperEndOffset -le $mapperOffset -or $mapperEndOffset -gt $Bytes.Length) {
+        throw 'slot_is_disabled mapper range is invalid'
+    }
+
+    $dispatchers = @()
+    $searchEnd = [Math]::Min([int64]$mapperOffset + 0x80, $mapperEndOffset - 28)
+    for ($offset = [int64]$mapperOffset; $offset -le $searchEnd; $offset += 4) {
+        $cmp = Read-Arm64Instruction -Bytes $Bytes -Offset $offset
+        $branch = Read-Arm64Instruction -Bytes $Bytes -Offset ($offset + 4)
+        $tableAdr = Read-Arm64Instruction -Bytes $Bytes -Offset ($offset + 8)
+        $load = Read-Arm64Instruction -Bytes $Bytes -Offset ($offset + 12)
+        $baseAdr = Read-Arm64Instruction -Bytes $Bytes -Offset ($offset + 16)
+        $add = Read-Arm64Instruction -Bytes $Bytes -Offset ($offset + 20)
+        $dispatch = Read-Arm64Instruction -Bytes $Bytes -Offset ($offset + 24)
+
+        if (($cmp -band [uint32]0xFFC003FFL) -ne [uint32]0x7100005F) { continue }
+        if (($branch -band [uint32]0xFF00001FL) -ne [uint32]0x54000008) { continue }
+        if (($tableAdr -band [uint32]0x9F00001FL) -ne [uint32]0x10000009) { continue }
+        if ($load -ne [uint32]0xB8A25928L) { continue }
+        if (($baseAdr -band [uint32]0x9F00001FL) -ne [uint32]0x10000009) { continue }
+        if ($add -ne [uint32]0x8B080928L -or $dispatch -ne [uint32]0xD61F0100L) { continue }
+
+        $dispatcherRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $offset
+        if ($null -eq $dispatcherRva) { continue }
+        $dispatchers += [PSCustomObject]@{
+            EnumLimit = [int](($cmp -shr 10) -band 0xFFF)
+            TableRva  = Get-Arm64AdrTargetRva -Instruction $tableAdr -InstructionRva ($dispatcherRva + 8)
+            BaseRva   = Get-Arm64AdrTargetRva -Instruction $baseAdr -InstructionRva ($dispatcherRva + 16)
+        }
+    }
+
+    if ($dispatchers.Count -ne 1) {
+        throw "Expected one ARM64 slot mapper dispatcher, found $($dispatchers.Count)"
+    }
+
+    $anchorRvas = @{}
+    foreach ($anchorRef in $AnchorRefs) {
+        $anchorRefRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $anchorRef
+        if ($null -ne $anchorRefRva) {
+            $anchorRvas['{0:X}' -f [int64]$anchorRefRva] = $true
+        }
+    }
+
+    $enumValues = @{}
+    $dispatcher = $dispatchers[0]
+    $tableOffset = Get-PEOffsetFromRva -Sections $PeInfo.Sections -Rva $dispatcher.TableRva
+    if ($null -eq $tableOffset) {
+        throw 'slot_is_disabled jump table offset was not found'
+    }
+    $tableSection = $PeInfo.Sections | Where-Object {
+        $dispatcher.TableRva -ge $_.VirtualAddress -and
+        $dispatcher.TableRva -lt ($_.VirtualAddress + $_.RawSize)
+    } | Select-Object -First 1
+    $tableEndOffset = [int64]$tableOffset + (([int64]$dispatcher.EnumLimit + 1) * 4)
+    if (-not $tableSection -or $tableEndOffset -gt ([int64]$tableSection.RawPtr + $tableSection.RawSize) -or
+        $tableEndOffset -gt $Bytes.Length) {
+        throw 'slot_is_disabled jump table range is invalid'
+    }
+    for ($enumValue = 0; $enumValue -le $dispatcher.EnumLimit; $enumValue++) {
+        $entryOffset = [int64]$tableOffset + ($enumValue * 4)
+        $relative = [BitConverter]::ToInt32($Bytes, [int]$entryOffset)
+        $targetRva = [int64]$dispatcher.BaseRva + ([int64]$relative * 4)
+        if ($anchorRvas.ContainsKey(('{0:X}' -f $targetRva))) {
+            $enumValues['{0:X}' -f $enumValue] = [uint32]$enumValue
+        }
+    }
+
+    if ($enumValues.Count -ne 1) {
+        throw "Expected one ARM64 slot_is_disabled enum value, found $($enumValues.Count)"
+    }
+    return [uint32](@($enumValues.Values)[0])
+}
+
+function Get-Arm64BlockSlotsPredicateInfo {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo,
+        [object]$Context,
+        [int64]$TargetRva
+    )
+
+    try {
+        $functionRange = Get-BinaryPatchFunctionRange -Bytes $Bytes -PeInfo $PeInfo -Context $Context -Rva $TargetRva
+        if ($functionRange.Length -ne 2 -or [int64]$functionRange[0] -ne $TargetRva -or
+            ([int64]$functionRange[1] - [int64]$functionRange[0]) -ne 0x54) {
+            return $null
+        }
+
+        $functionOffset = Get-PEOffsetFromRva -Sections $PeInfo.Sections -Rva $TargetRva
+        if ($null -eq $functionOffset -or $functionOffset + 0x54 -gt $Bytes.Length) {
+            return $null
+        }
+        $functionOffset = [int64]$functionOffset
+        $instruction = @()
+        for ($relative = 0; $relative -lt 0x54; $relative += 4) {
+            $instruction += Read-Arm64Instruction -Bytes $Bytes -Offset ($functionOffset + $relative)
+        }
+
+        if ($instruction[0] -ne [uint32]0xF81F0FF3L -or $instruction[1] -ne [uint32]0xA9BF7BFDL -or
+            $instruction[2] -ne [uint32]0x910003FDL) {
+            return $null
+        }
+
+        $returnFalseRva = $TargetRva + 0x44
+        $returnFalseOffset = $functionOffset + 0x44
+        $patchOffset = $functionOffset + 0x0C
+        $originalBytes = Convert-HexStringToBytes 'F3 03 00 AA'
+        $patchedBytes = New-Arm64BranchBytes -InstructionRva ($TargetRva + 0x0C) -TargetRva $returnFalseRva
+        if ([BinaryScannerV3]::MatchBytes($Bytes, [int]$patchOffset, $originalBytes)) {
+            $state = 'Original'
+        }
+        elseif ([BinaryScannerV3]::MatchBytes($Bytes, [int]$patchOffset, $patchedBytes)) {
+            $state = 'Patched'
+        }
+        else {
+            return $null
+        }
+
+        if (($instruction[4] -band [uint32]0xFFC003FFL) -ne [uint32]0x39400268 -or
+            ($instruction[6] -band [uint32]0xFFC003FFL) -ne [uint32]0x39400260 -or
+            ($instruction[8] -band [uint32]0xFFC003FFL) -ne [uint32]0x39400268 -or
+            ($instruction[13] -band [uint32]0xFFC003FFL) -ne [uint32]0x39400268) {
+            return $null
+        }
+        if ((Get-Arm64CbzW8TargetRva -Instruction $instruction[5] -InstructionRva ($TargetRva + 0x14)) -ne ($TargetRva + 0x20) -or
+            (Get-Arm64BranchTargetRva -Instruction $instruction[7] -InstructionRva ($TargetRva + 0x1C) -Kind B) -ne ($TargetRva + 0x48) -or
+            (Get-Arm64CbzW8TargetRva -Instruction $instruction[9] -InstructionRva ($TargetRva + 0x24)) -ne $returnFalseRva -or
+            (Get-Arm64BranchTargetRva -Instruction $instruction[12] -InstructionRva ($TargetRva + 0x30) -Kind TbnzW0Bit0) -ne ($TargetRva + 0x3C) -or
+            (Get-Arm64CbzW8TargetRva -Instruction $instruction[14] -InstructionRva ($TargetRva + 0x38)) -ne $returnFalseRva -or
+            (Get-Arm64BranchTargetRva -Instruction $instruction[16] -InstructionRva ($TargetRva + 0x40) -Kind B) -ne ($TargetRva + 0x48)) {
+            return $null
+        }
+        if ($instruction[10] -ne [uint32]0xAA1303E0L -or
+            ($instruction[11] -band [uint32]0xFC000000L) -ne [uint32]0x94000000L -or
+            $instruction[15] -ne [uint32]0x52800020L -or $instruction[17] -ne [uint32]0x52800000L -or
+            $instruction[18] -ne [uint32]0xA8C17BFDL -or $instruction[19] -ne [uint32]0xF84107F3L -or
+            $instruction[20] -ne [uint32]0xD65F03C0L) {
+            return $null
+        }
+
+        $helperTargetRva = Get-Arm64BranchTargetRva -Instruction $instruction[11] -InstructionRva ($TargetRva + 0x2C) -Kind BL
+        $textRvaEnd = [int64]$Context.Text.VirtualAddress + [Math]::Max([int64]$Context.Text.VirtualSize, [int64]$Context.Text.RawSize)
+        if ($helperTargetRva -lt [int64]$Context.Text.VirtualAddress -or $helperTargetRva -ge $textRvaEnd) {
+            return $null
+        }
+
+        return [PSCustomObject]@{
+            PredicateRva  = $TargetRva
+            FunctionOffset = $functionOffset
+            FunctionEnd   = $functionOffset + 0x54
+            PatchOffset   = $patchOffset
+            ReturnOffset  = $returnFalseOffset
+            OriginalBytes = $originalBytes
+            PatchedBytes  = $patchedBytes
+            State         = $state
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
+function Find-Arm64BlockSlotsBinaryPatchLocation {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo
+    )
+
+    $context = Get-BinaryPatchContext -PeInfo $PeInfo
+    $anchor = Get-UniqueBinaryAnchor -Bytes $Bytes -PeInfo $PeInfo -Text 'slot_is_disabled' -NullTerminated
+    $anchorRefs = @([BinaryScannerV3]::FindXrefArm64(
+        $Bytes,
+        [uint64]$anchor.Rva,
+        [uint64]$context.Text.VirtualAddress,
+        [uint32]$context.Text.RawPtr,
+        [uint32]$context.Text.RawSize
+    ) | Select-Object -Unique)
+    if ($anchorRefs.Count -eq 0) {
+        throw 'slot_is_disabled ARM64 code reference was not found'
+    }
+
+    $mapperFunctions = @{}
+    foreach ($anchorRef in $anchorRefs) {
+        $anchorRefRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $anchorRef
+        if ($null -eq $anchorRefRva) { continue }
+        $range = Get-BinaryPatchFunctionRange -Bytes $Bytes -PeInfo $PeInfo -Context $context -Rva $anchorRefRva
+        if ($range.Length -ne 2) { continue }
+        $size = [int64]$range[1] - [int64]$range[0]
+        if ($size -lt 0x100 -or $size -gt 0x4000) { continue }
+        $mapperFunctions['{0:X}' -f [int64]$range[0]] = [PSCustomObject]@{
+            StartRva = [int64]$range[0]
+            EndRva   = [int64]$range[1]
+        }
+    }
+    if ($mapperFunctions.Count -ne 1) {
+        throw "Expected one ARM64 slot mapper function, found $($mapperFunctions.Count)"
+    }
+
+    $mapper = @($mapperFunctions.Values)[0]
+    $enumValue = Get-Arm64BlockSlotsMapperEnumValue `
+        -Bytes $Bytes `
+        -PeInfo $PeInfo `
+        -MapperStartRva $mapper.StartRva `
+        -MapperEndRva $mapper.EndRva `
+        -AnchorRefs $anchorRefs
+
+    $callers = @([BinaryScannerV3]::FindArm64BlockSlotsCallers(
+        $Bytes,
+        [int]$context.Text.RawPtr,
+        [int]$context.Text.RawSize,
+        [uint32]$enumValue
+    ))
+    $validatedTargets = @{}
+    foreach ($callerOffset in $callers) {
+        try {
+            $callerRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $callerOffset
+            if ($null -eq $callerRva) { continue }
+            $callerRange = Get-BinaryPatchFunctionRange -Bytes $Bytes -PeInfo $PeInfo -Context $context -Rva $callerRva
+            if ($callerRange.Length -ne 2 -or ([int64]$callerRva + 12) -gt [int64]$callerRange[1]) { continue }
+
+            $branch = Read-Arm64Instruction -Bytes $Bytes -Offset ($callerOffset + 4)
+            $branchTargetRva = Get-Arm64BranchTargetRva -Instruction $branch -InstructionRva ($callerRva + 4) -Kind TbnzW0Bit0
+            if ($branchTargetRva -lt [int64]$callerRange[0] -or $branchTargetRva -ge [int64]$callerRange[1]) { continue }
+
+            $call = Read-Arm64Instruction -Bytes $Bytes -Offset $callerOffset
+            $targetRva = Get-Arm64BranchTargetRva -Instruction $call -InstructionRva $callerRva -Kind BL
+            $predicate = Get-Arm64BlockSlotsPredicateInfo -Bytes $Bytes -PeInfo $PeInfo -Context $context -TargetRva $targetRva
+            if ($null -eq $predicate) { continue }
+
+            $key = '{0:X}' -f $targetRva
+            if (-not $validatedTargets.ContainsKey($key)) {
+                $validatedTargets[$key] = [PSCustomObject]@{
+                    Predicate   = $predicate
+                    CallerCount = 1
+                    CallerOffset = [int64]$callerOffset
+                }
+            }
+            else {
+                $validatedTargets[$key].CallerCount++
+            }
+        }
+        catch {
+            continue
+        }
+    }
+
+    if ($validatedTargets.Count -eq 0) {
+        throw 'ARM64 block_slots semantic function was not found'
+    }
+    if ($validatedTargets.Count -ne 1) {
+        throw "Expected one ARM64 block_slots semantic function, found $($validatedTargets.Count)"
+    }
+
+    $match = @($validatedTargets.Values)[0]
+    return [PSCustomObject]@{
+        Architecture  = 'ARM64'
+        PredicateRva  = $match.Predicate.PredicateRva
+        FunctionOffset = $match.Predicate.FunctionOffset
+        FunctionEnd   = $match.Predicate.FunctionEnd
+        PatchOffset   = $match.Predicate.PatchOffset
+        ReturnOffset  = $match.Predicate.ReturnOffset
+        OriginalBytes = $match.Predicate.OriginalBytes
+        PatchedBytes  = $match.Predicate.PatchedBytes
+        State         = $match.Predicate.State
+        CallerOffset  = $match.CallerOffset
+        CallerCount   = $match.CallerCount
+        EnumValue     = $enumValue
+    }
+}
+
+function Find-BlockSlotsBinaryPatchLocation {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo
+    )
+
+    switch ($PeInfo.Architecture) {
+        'x64' { return Find-X64BlockSlotsBinaryPatchLocation -Bytes $Bytes -PeInfo $PeInfo }
+        'ARM64' { return Find-Arm64BlockSlotsBinaryPatchLocation -Bytes $Bytes -PeInfo $PeInfo }
+        default { throw "Architecture $($PeInfo.Architecture) is not supported for block_slots patch" }
+    }
+}
+
+function Invoke-VerifiedBinaryPatch {
+    param(
+        [string]$FilePath,
+        [string]$PatchName,
+        [scriptblock]$Locator,
+        [scriptblock]$DescribeLocation
+    )
+
+    $rollbackFailed = $false
+    try {
+        Initialize-BinaryScanner
+        if (-not (Test-Path -LiteralPath $FilePath)) {
+            throw 'File Spotify.dll not found'
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($FilePath)
+        $peInfo = Get-PEFileInfo -Bytes $bytes
+        $location = & $Locator $bytes $peInfo
+        $requiredProperties = @('Architecture', 'State', 'PatchOffset', 'OriginalBytes', 'PatchedBytes')
+        $missingProperties = @($requiredProperties | Where-Object {
+                $null -eq $location -or $null -eq $location.PSObject.Properties[$_]
+            })
+        if ($missingProperties.Count -ne 0 -or $location.Architecture -ne $peInfo.Architecture) {
+            throw "Unexpected $PatchName locator result"
+        }
+        if ($null -eq $location.PatchedBytes -or $location.PatchedBytes.Length -eq 0 -or
+            $location.PatchOffset -lt 0 -or $location.PatchOffset + $location.PatchedBytes.Length -gt $bytes.Length) {
+            throw "$PatchName patch range is invalid"
+        }
+        if ($DescribeLocation) {
+            & $DescribeLocation $location
+        }
+
+        if ($location.State -eq 'Patched') {
+            if (-not [BinaryScannerV3]::MatchBytes($bytes, [int]$location.PatchOffset, $location.PatchedBytes)) {
+                throw "Unexpected $PatchName patched state"
+            }
+            Write-Verbose ("{0} already patched at offset 0x{1:X}" -f $PatchName, $location.PatchOffset)
+            return $true
+        }
+        if ($location.State -ne 'Original' -or
+            $null -eq $location.OriginalBytes -or $location.OriginalBytes.Length -eq 0 -or
+            $location.OriginalBytes.Length -ne $location.PatchedBytes.Length -or
+            -not [BinaryScannerV3]::MatchBytes($bytes, [int]$location.PatchOffset, $location.OriginalBytes)) {
+            throw "Unexpected $PatchName patch state"
+        }
+
+        $patchedFileBytes = [byte[]]$bytes.Clone()
+        for ($i = 0; $i -lt $location.PatchedBytes.Length; $i++) {
+            $patchedFileBytes[[int]$location.PatchOffset + $i] = $location.PatchedBytes[$i]
+        }
+
+        try {
+            [System.IO.File]::WriteAllBytes($FilePath, $patchedFileBytes)
+            $writtenBytes = [System.IO.File]::ReadAllBytes($FilePath)
+            if ($writtenBytes.Length -ne $bytes.Length) {
+                throw "$PatchName patch changed file length"
+            }
+            if (-not [BinaryScannerV3]::MatchBytes($writtenBytes, 0, $patchedFileBytes)) {
+                throw "$PatchName patch changed unexpected bytes"
+            }
+            $writtenPeInfo = Get-PEFileInfo -Bytes $writtenBytes
+            $writtenLocation = & $Locator $writtenBytes $writtenPeInfo
+            if ($writtenPeInfo.Architecture -ne $peInfo.Architecture -or
+                $writtenLocation.Architecture -ne $location.Architecture -or
+                $writtenLocation.State -ne 'Patched' -or $writtenLocation.PatchOffset -ne $location.PatchOffset -or
+                -not [BinaryScannerV3]::MatchBytes($writtenBytes, [int]$location.PatchOffset, $location.PatchedBytes)) {
+                throw "$PatchName patch verification failed"
+            }
+        }
+        catch {
+            $patchError = $_.Exception.Message
+            try {
+                $restoredBytes = [System.IO.File]::ReadAllBytes($FilePath)
+                if ($restoredBytes.Length -ne $bytes.Length -or -not [BinaryScannerV3]::MatchBytes($restoredBytes, 0, $bytes)) {
+                    [System.IO.File]::WriteAllBytes($FilePath, $bytes)
+                    $restoredBytes = [System.IO.File]::ReadAllBytes($FilePath)
+                }
+                if ($restoredBytes.Length -ne $bytes.Length -or -not [BinaryScannerV3]::MatchBytes($restoredBytes, 0, $bytes)) {
+                    throw 'rollback verification failed'
+                }
+            }
+            catch {
+                $rollbackFailed = $true
+                throw "$patchError; rollback failed: $($_.Exception.Message)"
+            }
+            throw $patchError
+        }
+
+        Write-Verbose ("{0} patched at offset 0x{1:X} with {2}" -f
+            $PatchName,
+            $location.PatchOffset,
+            (($location.PatchedBytes | ForEach-Object { $_.ToString('X2') }) -join ' '))
+        return $true
+    }
+    catch {
+        if ($rollbackFailed) { throw }
+        Write-Warning ("{0} patch was not applied: {1}" -f $PatchName, $_.Exception.Message)
+        return $false
+    }
+}
+
+function Set-BlockSlotsBinaryPatch {
+    [CmdletBinding()]
+    param (
+        [string]$FilePath
+    )
+
+    return Invoke-VerifiedBinaryPatch `
+        -FilePath $FilePath `
+        -PatchName 'block_slots' `
+        -Locator {
+            param([byte[]]$Bytes, [object]$PeInfo)
+            Find-BlockSlotsBinaryPatchLocation -Bytes $Bytes -PeInfo $PeInfo
+        } `
+        -DescribeLocation {
+            param([object]$Location)
+            Write-Verbose ("block_slots {0} predicate RVA 0x{1:X}, caller offset 0x{2:X}, enum 0x{3:X}" -f
+                $Location.Architecture, $Location.PredicateRva, $Location.CallerOffset, $Location.EnumValue)
+        }
+}
+
+function Find-X64CrossfadeEnabledBinaryPatchLocation {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo
+    )
+
+    $context = Get-BinaryPatchContext -PeInfo $PeInfo
+    $anchor = Get-UniqueBinaryAnchor -Bytes $Bytes -PeInfo $PeInfo -Text 'crossfade_enabled' -NullTerminated
+    $anchorRefs = @([BinaryScannerV3]::FindRipLeaRefs(
+        $Bytes,
+        [int]$context.Text.RawPtr,
+        [int]$context.Text.RawSize,
+        [int64]$anchor.Rva,
+        $context.RawPtrs,
+        $context.RawSizes,
+        $context.VirtualAddresses
+    ) | Select-Object -Unique)
+    if ($anchorRefs.Count -eq 0) {
+        throw 'No x64 code reference to crossfade_enabled was found'
+    }
+
+    $getterFunctions = @{}
+    foreach ($anchorRef in $anchorRefs) {
+        $refRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $anchorRef
+        if ($null -eq $refRva) { continue }
+        $range = Get-BinaryPatchFunctionRange -Bytes $Bytes -PeInfo $PeInfo -Context $context -Rva $refRva
+        if ($range.Length -eq 2) {
+            $getterFunctions['{0:X}' -f [int64]$range[0]] = [PSCustomObject]@{
+                StartRva = [int64]$range[0]
+                EndRva   = [int64]$range[1]
+            }
+        }
+    }
+    if ($getterFunctions.Count -ne 1) {
+        throw "Expected one x64 crossfade getter function, found $($getterFunctions.Count)"
+    }
+    $getter = @($getterFunctions.Values)[0]
+
+    $gateContextPattern = Convert-HexStringToBytes '48 8B 0B 00 00 00 00 00 88 45 00 48 8D 4D 00 E8'
+    $gateContextMask = Convert-HexStringToBytes 'FF FF FF 00 00 00 00 00 FF FF 00 FF FF FF 00 FF'
+    $hasGateContext = {
+        param([int]$Candidate)
+
+        if (-not [BinaryScannerV3]::MatchMaskedBytes($Bytes, $Candidate - 3, $gateContextPattern, $gateContextMask)) {
+            return $false
+        }
+        $candidateRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $Candidate
+        if ($null -eq $candidateRva) { return $false }
+        $callerRange = Get-BinaryPatchFunctionRange -Bytes $Bytes -PeInfo $PeInfo -Context $context -Rva $candidateRva
+        return $callerRange.Length -eq 2 -and ([int64]$candidateRva - 3) -ge [int64]$callerRange[0] -and
+            ([int64]$candidateRva + 13) -le [int64]$callerRange[1]
+    }
+
+    $originalCandidates = @([BinaryScannerV3]::FindCrossfadeGateCallsToRva(
+        $Bytes,
+        [int]$context.Text.RawPtr,
+        [int]$context.Text.RawSize,
+        $getter.StartRva,
+        $context.RawPtrs,
+        $context.RawSizes,
+        $context.VirtualAddresses
+    ) | Select-Object -Unique | Where-Object { & $hasGateContext ([int]$_) })
+
+    $patchedBytes = Convert-HexStringToBytes 'B0 01 90 90 90'
+    $patchedCandidates = @()
+    $textEnd = [int64]$context.Text.RawPtr + [int64]$context.Text.RawSize
+    $searchOffset = [int]$context.Text.RawPtr
+    while ($searchOffset -lt $textEnd) {
+        $candidate = [BinaryScannerV3]::FindBytes($Bytes, $patchedBytes, $searchOffset)
+        if ($candidate -lt 0 -or $candidate + 13 -gt $textEnd) { break }
+        $searchOffset = $candidate + 1
+        if (-not (& $hasGateContext $candidate)) { continue }
+        $patchedCandidates += [int]$candidate
+    }
+
+    if (($originalCandidates.Count + $patchedCandidates.Count) -ne 1) {
+        throw "Expected one x64 crossfade gate call site, found $($originalCandidates.Count + $patchedCandidates.Count)"
+    }
+
+    if ($originalCandidates.Count -eq 1) {
+        $patchOffset = [int64]$originalCandidates[0]
+        $patchRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $patchOffset
+        if ($null -eq $patchRva) {
+            throw 'x64 crossfade call site RVA was not found'
+        }
+        $displacement = [int64]$getter.StartRva - ([int64]$patchRva + 5)
+        if ($displacement -lt [int32]::MinValue -or $displacement -gt [int32]::MaxValue) {
+            throw 'x64 crossfade call target is out of range'
+        }
+        $originalBytes = [byte[]](@(0xE8) + [BitConverter]::GetBytes([int32]$displacement))
+        if (-not [BinaryScannerV3]::MatchBytes($Bytes, [int]$patchOffset, $originalBytes)) {
+            throw 'Unexpected x64 crossfade call bytes'
+        }
+        $state = 'Original'
+    }
+    else {
+        $patchOffset = [int64]$patchedCandidates[0]
+        $originalBytes = $null
+        $state = 'Patched'
+    }
+
+    return [PSCustomObject]@{
+        Architecture  = 'x64'
+        FunctionRva   = $getter.StartRva
+        PatchOffset   = $patchOffset
+        OriginalBytes = $originalBytes
+        PatchedBytes  = $patchedBytes
+        State         = $state
+        AnchorRefCount = $anchorRefs.Count
+    }
+}
+
+function Find-Arm64CrossfadeEnabledBinaryPatchLocation {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo
+    )
+
+    $context = Get-BinaryPatchContext -PeInfo $PeInfo
+    $anchor = Get-UniqueBinaryAnchor -Bytes $Bytes -PeInfo $PeInfo -Text 'crossfade_enabled' -NullTerminated
+    $anchorRefs = @([BinaryScannerV3]::FindXrefArm64(
+        $Bytes,
+        [uint64]$anchor.Rva,
+        [uint64]$context.Text.VirtualAddress,
+        [uint32]$context.Text.RawPtr,
+        [uint32]$context.Text.RawSize
+    ) | Select-Object -Unique)
+    if ($anchorRefs.Count -eq 0) {
+        throw 'No ARM64 code reference to crossfade_enabled was found'
+    }
+
+    $referenceFunctions = @{}
+    foreach ($anchorRef in $anchorRefs) {
+        $refRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $anchorRef
+        if ($null -eq $refRva) { continue }
+        $range = Get-BinaryPatchFunctionRange -Bytes $Bytes -PeInfo $PeInfo -Context $context -Rva $refRva
+        if ($range.Length -ne 2) { continue }
+        $referenceFunctions['{0:X}' -f [int64]$anchorRef] = [PSCustomObject]@{
+            StartRva = [int64]$range[0]
+            EndRva   = [int64]$range[1]
+        }
+    }
+
+    $patchedBytes = Convert-HexStringToBytes '20 00 80 52'
+    $candidates = @{}
+    foreach ($anchorRef in $anchorRefs) {
+        $referenceKey = '{0:X}' -f [int64]$anchorRef
+        if (-not $referenceFunctions.ContainsKey($referenceKey)) { continue }
+        $function = $referenceFunctions[$referenceKey]
+        $addOffset = [int64]$anchorRef + 4
+        $addAnchor = Read-Arm64Instruction -Bytes $Bytes -Offset $addOffset
+        if (($addAnchor -band [uint32]0xFFC0001FL) -ne [uint32]0x91000003L) { continue }
+
+        $movKey = Read-Arm64Instruction -Bytes $Bytes -Offset ($addOffset + 4)
+        $movOwner = Read-Arm64Instruction -Bytes $Bytes -Offset ($addOffset + 8)
+        $movDefault = Read-Arm64Instruction -Bytes $Bytes -Offset ($addOffset + 12)
+        $movResolver = Read-Arm64Instruction -Bytes $Bytes -Offset ($addOffset + 16)
+        $addOtherKey = Read-Arm64Instruction -Bytes $Bytes -Offset ($addOffset + 20)
+        $patchOffset = $addOffset + 24
+        $patchInstruction = Read-Arm64Instruction -Bytes $Bytes -Offset $patchOffset
+        $storeResult = Read-Arm64Instruction -Bytes $Bytes -Offset ($addOffset + 28)
+
+        if ($movKey -ne [uint32]0xAA0003E2L -or
+            ($movOwner -band [uint32]0xFFE0FFFFL) -ne [uint32]0xAA0003E0L -or
+            $movDefault -ne [uint32]0x52800025L -or
+            ($movResolver -band [uint32]0xFFE0FFFFL) -ne [uint32]0xAA0003E4L -or
+            ($addOtherKey -band [uint32]0xFFC0001FL) -ne [uint32]0x91000001L -or
+            ($storeResult -band [uint32]0xFFFFFFE0L) -ne [uint32]0x2A0003E0L) {
+            continue
+        }
+
+        $patchRva = Get-PERvaFromOffset -Sections $PeInfo.Sections -Offset $patchOffset
+        if ($null -eq $patchRva -or $patchRva -lt $function.StartRva -or $patchRva -ge $function.EndRva) { continue }
+        if (($patchInstruction -band [uint32]0xFC000000L) -eq [uint32]0x94000000L) {
+            $targetRva = Get-Arm64BranchTargetRva -Instruction $patchInstruction -InstructionRva $patchRva -Kind BL
+            $textRvaEnd = [int64]$context.Text.VirtualAddress + [Math]::Max([int64]$context.Text.VirtualSize, [int64]$context.Text.RawSize)
+            if ($targetRva -lt [int64]$context.Text.VirtualAddress -or $targetRva -ge $textRvaEnd) { continue }
+            $state = 'Original'
+            $originalBytes = [BitConverter]::GetBytes([uint32]$patchInstruction)
+        }
+        elseif ($patchInstruction -eq [uint32]0x52800020L) {
+            $state = 'Patched'
+            $originalBytes = $null
+        }
+        else {
+            continue
+        }
+
+        $candidates['{0:X}' -f [int64]$patchOffset] = [PSCustomObject]@{
+            FunctionRva  = $function.StartRva
+            PatchOffset   = $patchOffset
+            OriginalBytes = $originalBytes
+            State         = $state
+        }
+    }
+
+    if ($candidates.Count -ne 1) {
+        throw "Expected one ARM64 crossfade boolean call site, found $($candidates.Count)"
+    }
+    $candidate = @($candidates.Values)[0]
+    return [PSCustomObject]@{
+        Architecture  = 'ARM64'
+        FunctionRva   = $candidate.FunctionRva
+        PatchOffset   = $candidate.PatchOffset
+        OriginalBytes = $candidate.OriginalBytes
+        PatchedBytes  = $patchedBytes
+        State         = $candidate.State
+        AnchorRefCount = $anchorRefs.Count
+    }
+}
+
+function Find-CrossfadeEnabledBinaryPatchLocation {
+    param(
+        [byte[]]$Bytes,
+        [object]$PeInfo
+    )
+
+    switch ($PeInfo.Architecture) {
+        'x64' { return Find-X64CrossfadeEnabledBinaryPatchLocation -Bytes $Bytes -PeInfo $PeInfo }
+        'ARM64' { return Find-Arm64CrossfadeEnabledBinaryPatchLocation -Bytes $Bytes -PeInfo $PeInfo }
+        default { throw "Architecture $($PeInfo.Architecture) is not supported for crossfade_enabled patch" }
+    }
+}
+
+function Set-CrossfadeEnabledBinaryPatch {
+    [CmdletBinding()]
+    param (
+        [string]$FilePath
+    )
+
+    return Invoke-VerifiedBinaryPatch `
+        -FilePath $FilePath `
+        -PatchName 'crossfade_enabled' `
+        -Locator {
+            param([byte[]]$Bytes, [object]$PeInfo)
+            Find-CrossfadeEnabledBinaryPatchLocation -Bytes $Bytes -PeInfo $PeInfo
+        } `
+        -DescribeLocation {
+            param([object]$Location)
+            Write-Verbose ("crossfade_enabled {0} function RVA 0x{1:X}, references {2}" -f
+                $Location.Architecture, $Location.FunctionRva, $Location.AnchorRefCount)
+        }
 }
 
 function Remove-Sign {
@@ -2670,21 +4771,14 @@ function Remove-Sign {
     param([string]$filePath)
     try {
         $bytes = [System.IO.File]::ReadAllBytes($filePath)
-        $peHeaderOffset = [System.BitConverter]::ToUInt32($bytes, 0x3C)
-        if ($bytes[$peHeaderOffset] -ne 0x50 -or $bytes[$peHeaderOffset + 1] -ne 0x45) {
-            Write-Warning "File '$(Split-Path $filePath -Leaf)' is not a valid PE file."
+        $peInfo = Get-PEFileInfo -Bytes $bytes
+        if ($peInfo.DataDirectoryOffset -eq $null) {
+            Write-Warning "Unsupported architecture type ($($peInfo.MachineType.ToString('X'))) in file '$(Split-Path $filePath -Leaf)'."
             return $false
         }
-        $fileHeaderOffset = $peHeaderOffset + 4
-        $optionalHeaderOffset = $fileHeaderOffset + 20
-        $archInfo = Get-PEArchitectureOffsets -bytes $bytes -fileHeaderOffset $fileHeaderOffset
-        if ($archInfo.DataDirectoryOffset -eq $null) {
-            Write-Warning "Unsupported architecture type ($($archInfo.MachineType.ToString('X'))) in file '$(Split-Path $filePath -Leaf)'."
-            return $false
-        }
-        $dataDirectoryOffsetWithinOptionalHeader = $archInfo.DataDirectoryOffset
+        $dataDirectoryOffsetWithinOptionalHeader = $peInfo.DataDirectoryOffset
         $securityDirectoryIndex = 4
-        $certificateTableEntryOffset = $optionalHeaderOffset + $dataDirectoryOffsetWithinOptionalHeader + ($securityDirectoryIndex * 8)
+        $certificateTableEntryOffset = $peInfo.OptionalHeaderOffset + $dataDirectoryOffsetWithinOptionalHeader + ($securityDirectoryIndex * 8)
         if ($certificateTableEntryOffset + 8 -gt $bytes.Length) {
             Write-Warning "Could not find Data Directory in file '$(Split-Path $filePath -Leaf)'. Header is corrupted or has non-standard format."
             return $false
@@ -2702,11 +4796,15 @@ function Remove-Sign {
         return $true
     }
     catch {
-        Write-Error "Error processing file '$filePath': $_"
+        if ($_.Exception.Message -eq 'Invalid PE file') {
+            Write-Warning "File '$(Split-Path $filePath -Leaf)' is not a valid PE file."
+        }
+        else {
+            Write-Error "Error processing file '$filePath': $_"
+        }
         return $false
     }
 }
-
 function Remove-Signature-FromFiles {
     [CmdletBinding()]
     param([string[]]$fileNames)
@@ -2884,7 +4982,7 @@ if ($test_spa) {
         if ($null -eq $entry) { throw "Archive entry not found: xpui.js" }
 
         $reader = New-Object System.IO.StreamReader($entry.Open())
-        $patched_by_spotx = $reader.ReadToEnd()
+        $patched_by_aimods = $reader.ReadToEnd()
     }
     catch {
         Stop-BrokenSpotifyFiles -Details "Error: $($_.Exception.Message)"
@@ -2922,8 +5020,8 @@ if ($test_spa) {
                 }
                 else {
                     $binary_exe_bak = [System.IO.Path]::GetFileName($exe_bak)
-                    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run AIMODS-SimpleSpotify again" -f $binary_exe_bak)
-                    Pause
+                    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run SimpleSpotify again" -f $binary_exe_bak)
+                    if (-not $no_pause) { Pause }
                     Exit
                 }
 
@@ -2933,8 +5031,8 @@ if ($test_spa) {
                 }
                 else {
                     $binary_chrome_elf_bak = [System.IO.Path]::GetFileName($chrome_elf_bak)
-                    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run AIMODS-SimpleSpotify again" -f $binary_chrome_elf_bak)
-                    Pause
+                    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run SimpleSpotify again" -f $binary_chrome_elf_bak)
+                    if (-not $no_pause) { Pause }
                     Exit
                 }
 
@@ -2942,7 +5040,7 @@ if ($test_spa) {
         }
         else {
             Write-Host ($lang).NoRestore`n
-            Pause
+            if (-not $no_pause) { Pause }
             Exit
         }
 
@@ -3046,6 +5144,7 @@ if ($test_spa) {
         injection -p $xpui_spa_patch -f "aimods-helper/lyrics-color" -n @("rules.css", "colors.css") -c @($rulesContent, $colorsContent) -i "rules.css"
 
     }
+    extract -counts 'one' -method 'zip' -name 'home-v2.js' -helper 'HomeV2-js'
     extract -counts 'one' -method 'zip' -name 'xpui.js' -helper 'VariousofXpui-js'
     
     if ([version]$offline -ge [version]"1.1.85.884" -and [version]$offline -le [version]"1.2.57.463") {
@@ -3107,7 +5206,6 @@ if ($test_spa) {
     if ($null -ne $css ) { extract -counts 'one' -method 'zip' -name 'xpui.css' -add $css }
     
     # Old UI fix
-    $contents = "fix-old-theme"
     extract -counts 'one' -method 'zip' -name 'xpui.css' -helper "FixCss"
 
     # Remove RTL and minification of all *.css
@@ -3115,7 +5213,8 @@ if ($test_spa) {
     
     # licenses.html minification
 
-    extract -counts 'one' -method 'zip' -name 'licenses.html' -helper 'HtmlLicMin'
+    $licensesFileName = if ([version]$offline -ge [version]'1.2.93') { 'ui-licenses.html' } else { 'licenses.html' }
+    extract -counts 'one' -method 'zip' -name $licensesFileName -helper 'HtmlLicMin'
     # blank.html minification
     extract -counts 'one' -method 'zip' -name 'blank.html' -helper 'HtmlBlank'
     
@@ -3187,8 +5286,8 @@ if ($regex1 -and $regex2 -and $regex3 -and $regex4 -and $regex5) {
 
 if (-not (Test-Path -LiteralPath $spotify_binary_bak)) {
     $name_binary = [System.IO.Path]::GetFileName($spotify_binary_bak)
-    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run AIMODS-SimpleSpotify again" -f $name_binary)
-    Pause
+    Write-Warning ("Backup copy {0} not found. Please reinstall Spotify and run SimpleSpotify again" -f $name_binary)
+    if (-not $no_pause) { Pause }
     Exit
 }
 
@@ -3202,6 +5301,14 @@ if ($spotify_binary_bak -eq $dll_bak) {
 
 # binary patch
 extract -counts 'exe' -helper 'Binary'
+
+if ($spotify_binary_bak -eq $dll_bak -and !$premium -and [version]$offline -ge [version]'1.2.94') {
+    $null = Set-BlockSlotsBinaryPatch -FilePath $spotifyDll
+}
+
+if ($spotify_binary_bak -eq $dll_bak -and !$premium -and [version]$offline -ge [version]'1.2.89') {
+    $null = Set-CrossfadeEnabledBinaryPatch -FilePath $spotifyDll
+}
 
 # fix login for old versions
 if ([version]$offline -ge [version]"1.1.87.612" -and [version]$offline -le [version]"1.2.5.1006") {
