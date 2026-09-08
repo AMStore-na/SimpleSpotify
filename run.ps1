@@ -461,7 +461,7 @@ function Resolve-SpotifyInstallerVersionFromManifest {
 $spotifyDownloadBaseUrl = "https://loadspot.amd64fox1.workers.dev/download"
 $spotifyTemporaryDownloadBaseUrl = "https://loadspot.amd64fox1.workers.dev/temporary-download"
 $spotifyTemporaryDownloadVersion = "1.2.86.502.g8cd7fb22"
-$spotifyVersionsManifestUrl = Get-Link -e "/table/versions.json" -Owner "LoaderSpot" -Repository "table"
+$spotifyVersionsManifestUrl = "https://raw.githubusercontent.com/LoaderSpot/table/refs/heads/main/table/versions.json"
 $systemArchitecture = Get-SystemArchitecture
 
 $match_v = "^(?<version>\d+\.\d+\.\d+(?:\.\d+(?:\.g[0-9a-f]{8})?)?)(?:-\d+)?$"
